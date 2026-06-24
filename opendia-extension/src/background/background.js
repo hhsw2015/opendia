@@ -1141,6 +1141,184 @@ function getAvailableTools() {
         }
       }
     },
+    // ---- CDP power tools (Everywhere fork) ---------------------------
+    // Everything below requires chrome.debugger.attach. Chrome shows a
+    // "OpenDia is debugging this browser" warning bar on the affected
+    // tab — that is browser-enforced and unavoidable. In exchange, you
+    // get isTrusted=true input events, network capture, console
+    // capture, file upload via DOM.setFileInputFiles, etc.
+    {
+      name: "cdp_evaluate",
+      description: "🚀 CDP: Run arbitrary JS in the page via Runtime.evaluate (await supported, bypasses page CSP). Use when dom_query is not enough.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          expression: { type: "string", description: "JS expression. Wrapped to support top-level await." },
+          await_promise: { type: "boolean", default: true },
+          return_by_value: { type: "boolean", default: true },
+          timeout_ms: { type: "number", default: 10000 }
+        },
+        required: ["expression"]
+      }
+    },
+    {
+      name: "cdp_input_mouse",
+      description: "🖱️ CDP: dispatch isTrusted=true mouse events at viewport coordinates (mousePressed + mouseReleased). For sites that reject scripted .click() (Cloudflare/Turnstile/Stripe).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          x: { type: "number" },
+          y: { type: "number" },
+          button: { type: "string", enum: ["left","right","middle"], default: "left" },
+          click_count: { type: "number", default: 1 }
+        },
+        required: ["x","y"]
+      }
+    },
+    {
+      name: "cdp_input_keys",
+      description: "⌨️ CDP: type real isTrusted keystrokes via Input.dispatchKeyEvent. Each entry is either a single character (typed as text) or a key spec like 'Enter', 'Meta+Enter', 'Tab'.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          keys: { type: "array", items: { type: "string" }, description: "Sequence to type." }
+        },
+        required: ["keys"]
+      }
+    },
+    {
+      name: "cdp_list_network_requests",
+      description: "🌐 CDP: list HTTP(S) requests captured since attach. Use cdp_get_response_body(request_id) to fetch a body.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          limit: { type: "number", default: 200 },
+          since_ms: { type: "number", description: "Filter to requests started after this unix-ms timestamp." },
+          method_filter: { type: "string", description: "Substring filter on HTTP method (GET/POST/...)." },
+          url_filter: { type: "string", description: "Substring filter on URL." }
+        }
+      }
+    },
+    {
+      name: "cdp_get_response_body",
+      description: "🌐 CDP: fetch the response body for a captured request_id (from cdp_list_network_requests).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          request_id: { type: "string" }
+        },
+        required: ["request_id"]
+      }
+    },
+    {
+      name: "cdp_list_console_messages",
+      description: "📜 CDP: list console.* + Log entries captured since attach.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          limit: { type: "number", default: 200 },
+          level_filter: { type: "string", description: "info/log/warning/error/debug filter." }
+        }
+      }
+    },
+    {
+      name: "cdp_upload_file",
+      description: "📁 CDP: set files on a <input type=file> selected by CSS. Uses DOM.querySelector + DOM.setFileInputFiles. file_paths are absolute paths on the host machine running Chrome.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          selector: { type: "string" },
+          file_paths: { type: "array", items: { type: "string" } }
+        },
+        required: ["selector","file_paths"]
+      }
+    },
+    {
+      name: "wait_for_download",
+      description: "⬇️ Wait for the next download to start (or one already in progress to finish), then return its final filename + path. Uses chrome.downloads API.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          timeout_ms: { type: "number", default: 30000 },
+          since_ms: { type: "number", description: "Only consider downloads started after this unix-ms timestamp." }
+        }
+      }
+    },
+    {
+      name: "get_cookies",
+      description: "🍪 List cookies via chrome.cookies.getAll. Filter by url or domain.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          domain: { type: "string" },
+          name: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "set_cookie",
+      description: "🍪 Set a cookie via chrome.cookies.set.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          name: { type: "string" },
+          value: { type: "string" },
+          domain: { type: "string" },
+          path: { type: "string", default: "/" },
+          secure: { type: "boolean" },
+          http_only: { type: "boolean" },
+          expires_seconds: { type: "number", description: "Seconds from now until expiration." }
+        },
+        required: ["url","name","value"]
+      }
+    },
+    {
+      name: "clear_cookies",
+      description: "🍪 Remove cookies matching url+name (chrome.cookies.remove).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          name: { type: "string" }
+        },
+        required: ["url"]
+      }
+    },
+    {
+      name: "open_incognito_tab",
+      description: "🕵️ Open a new tab in a fresh Incognito window (clean cookies / storage).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", default: "about:blank" }
+        }
+      }
+    },
+    {
+      name: "emulate_device",
+      description: "📱 Override viewport + user agent via Emulation.setDeviceMetricsOverride / setUserAgentOverride. Pass clear:true to revert.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          width: { type: "number" },
+          height: { type: "number" },
+          device_scale_factor: { type: "number", default: 2 },
+          mobile: { type: "boolean", default: true },
+          user_agent: { type: "string" },
+          clear: { type: "boolean", default: false }
+        }
+      }
+    },
   ];
 }
 
@@ -1241,6 +1419,34 @@ async function handleMCPRequest(message) {
       case "screenshot":
         result = await captureScreenshot(params);
         break;
+
+      // CDP power tools
+      case "cdp_evaluate":
+        result = await cdpEvaluate(params); break;
+      case "cdp_input_mouse":
+        result = await cdpInputMouse(params); break;
+      case "cdp_input_keys":
+        result = await cdpInputKeys(params); break;
+      case "cdp_list_network_requests":
+        result = await cdpListNetworkRequests(params); break;
+      case "cdp_get_response_body":
+        result = await cdpGetResponseBody(params); break;
+      case "cdp_list_console_messages":
+        result = await cdpListConsoleMessages(params); break;
+      case "cdp_upload_file":
+        result = await cdpUploadFile(params); break;
+      case "wait_for_download":
+        result = await waitForDownload(params); break;
+      case "get_cookies":
+        result = await getCookies(params); break;
+      case "set_cookie":
+        result = await setCookie(params); break;
+      case "clear_cookies":
+        result = await clearCookies(params); break;
+      case "open_incognito_tab":
+        result = await openIncognitoTab(params); break;
+      case "emulate_device":
+        result = await emulateDevice(params); break;
 
       default:
         throw new Error(`Unknown method: ${method}`);
@@ -1574,6 +1780,342 @@ async function captureScreenshot(params) {
   const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
   if (!m) return { success: false, error: "captureVisibleTab returned unexpected data URL" };
   return { success: true, mime: m[1], base64: m[2], length: m[2].length };
+}
+
+// ============== CDP power tools (Everywhere fork) ==========================
+// chrome.debugger.attach(target, '1.3') gives us Runtime / DOM / Input /
+// Network / Page / Emulation. We attach lazily on first use, keep one
+// attachment per tab, and auto-detach on tab close. Per-tab buffers
+// accumulate Network and Console events for later retrieval.
+
+const _cdpAttached = new Map(); // tabId -> { attachedAt, network: [], console: [], pendingResponses: Map }
+const _cdpAttachLock = new Map();
+
+async function _cdpAttach(tabId) {
+  if (_cdpAttached.has(tabId)) return _cdpAttached.get(tabId);
+  // Serialize attach per tab — concurrent CDP calls would each race attach.
+  let lock = _cdpAttachLock.get(tabId);
+  if (!lock) {
+    lock = _doAttach(tabId);
+    _cdpAttachLock.set(tabId, lock);
+  }
+  try { return await lock; }
+  finally { _cdpAttachLock.delete(tabId); }
+}
+
+async function _doAttach(tabId) {
+  await new Promise((res, rej) => {
+    chrome.debugger.attach({ tabId }, '1.3', () => {
+      const e = chrome.runtime.lastError;
+      if (e && !/already attached/i.test(e.message || '')) rej(new Error(e.message));
+      else res();
+    });
+  });
+  const state = {
+    attachedAt: Date.now(),
+    network: [],
+    console: [],
+    pendingByReqId: new Map(),
+  };
+  _cdpAttached.set(tabId, state);
+  // Enable the domains we capture.
+  try { await _cdpSend(tabId, 'Network.enable', {}); } catch {}
+  try { await _cdpSend(tabId, 'Runtime.enable', {}); } catch {}
+  try { await _cdpSend(tabId, 'Log.enable', {}); } catch {}
+  return state;
+}
+
+function _cdpSend(tabId, method, params = {}) {
+  return new Promise((res, rej) => {
+    chrome.debugger.sendCommand({ tabId }, method, params, (r) => {
+      const e = chrome.runtime.lastError;
+      if (e) rej(new Error(`${method}: ${e.message}`));
+      else res(r);
+    });
+  });
+}
+
+// Single global CDP event listener — routes events to per-tab buffers.
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  const st = _cdpAttached.get(source.tabId);
+  if (!st) return;
+
+  if (method === 'Network.requestWillBeSent') {
+    st.network.push({
+      requestId: params.requestId,
+      url: params.request?.url,
+      method: params.request?.method,
+      type: params.type,
+      ts: Date.now(),
+      status: null, // filled in by Network.responseReceived
+      mime: null,
+      size: null,
+    });
+    if (st.network.length > 5000) st.network.splice(0, st.network.length - 5000);
+  } else if (method === 'Network.responseReceived') {
+    const e = st.network.find(r => r.requestId === params.requestId);
+    if (e) {
+      e.status = params.response?.status;
+      e.mime = params.response?.mimeType;
+    }
+  } else if (method === 'Network.loadingFinished') {
+    const e = st.network.find(r => r.requestId === params.requestId);
+    if (e) e.size = params.encodedDataLength;
+  } else if (method === 'Runtime.consoleAPICalled') {
+    st.console.push({
+      level: params.type,
+      text: (params.args || []).map(a => a.value !== undefined ? String(a.value)
+        : (a.description || JSON.stringify(a.preview || {}))).join(' '),
+      ts: Date.now(),
+      url: params.stackTrace?.callFrames?.[0]?.url,
+      line: params.stackTrace?.callFrames?.[0]?.lineNumber,
+    });
+    if (st.console.length > 2000) st.console.splice(0, st.console.length - 2000);
+  } else if (method === 'Log.entryAdded') {
+    st.console.push({
+      level: params.entry?.level,
+      text: params.entry?.text,
+      ts: Date.now(),
+      url: params.entry?.url,
+      line: params.entry?.lineNumber,
+      source: params.entry?.source,
+    });
+    if (st.console.length > 2000) st.console.splice(0, st.console.length - 2000);
+  }
+});
+
+// On tab close, detach automatically.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (_cdpAttached.has(tabId)) {
+    _cdpAttached.delete(tabId);
+    // attempt detach (may already be gone)
+    try { chrome.debugger.detach({ tabId }, () => void chrome.runtime.lastError); } catch {}
+  }
+});
+
+async function cdpEvaluate(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  const expr = params.expression;
+  if (!expr || typeof expr !== 'string') throw new Error("cdp_evaluate: expression required");
+  // Wrap in (async () => { ... })() so caller can write `return X` or just `X`.
+  const wrapped = `(async () => { ${expr.includes('return ') ? expr : 'return (' + expr + ');'} })()`;
+  const r = await _cdpSend(tabId, 'Runtime.evaluate', {
+    expression: wrapped,
+    awaitPromise: params.await_promise !== false,
+    returnByValue: params.return_by_value !== false,
+    timeout: Math.max(100, Math.min(60000, params.timeout_ms || 10000)),
+    userGesture: true,
+  });
+  if (r.exceptionDetails) {
+    return { success: false, error: r.exceptionDetails.text + (r.exceptionDetails.exception?.description ? ': ' + r.exceptionDetails.exception.description : '') };
+  }
+  return { success: true, result: r.result?.value !== undefined ? r.result.value : (r.result?.description ?? null) };
+}
+
+async function cdpInputMouse(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  const { x, y } = params;
+  if (typeof x !== 'number' || typeof y !== 'number') throw new Error("cdp_input_mouse: x and y required");
+  const button = params.button || 'left';
+  const click_count = params.click_count || 1;
+  await _cdpSend(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
+  for (let i = 0; i < click_count; i++) {
+    await _cdpSend(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount: i+1 });
+    await _cdpSend(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount: i+1 });
+  }
+  return { success: true, x, y, button, click_count };
+}
+
+const _CDP_KEY_MAP = {
+  'Enter':   { code: 'Enter',    keyCode: 13, key: 'Enter' },
+  'Return':  { code: 'Enter',    keyCode: 13, key: 'Enter' },
+  'Tab':     { code: 'Tab',      keyCode: 9,  key: 'Tab' },
+  'Escape':  { code: 'Escape',   keyCode: 27, key: 'Escape' },
+  'Backspace':{code: 'Backspace',keyCode: 8,  key: 'Backspace' },
+  'Delete':  { code: 'Delete',   keyCode: 46, key: 'Delete' },
+  'ArrowUp': { code: 'ArrowUp',  keyCode: 38, key: 'ArrowUp' },
+  'ArrowDown':{code: 'ArrowDown',keyCode: 40, key: 'ArrowDown' },
+  'ArrowLeft':{code: 'ArrowLeft',keyCode: 37, key: 'ArrowLeft' },
+  'ArrowRight':{code:'ArrowRight',keyCode:39, key: 'ArrowRight' },
+  'Space':   { code: 'Space',    keyCode: 32, key: ' ' },
+};
+function _cdpModifiers(parts) {
+  let m = 0;
+  for (const p of parts) {
+    const low = p.toLowerCase();
+    if (low === 'alt' || low === 'option') m |= 1;
+    else if (low === 'ctrl' || low === 'control') m |= 2;
+    else if (low === 'meta' || low === 'cmd' || low === 'command') m |= 4;
+    else if (low === 'shift') m |= 8;
+  }
+  return m;
+}
+async function cdpInputKeys(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  const keys = params.keys;
+  if (!Array.isArray(keys)) throw new Error("cdp_input_keys: keys array required");
+  for (const spec of keys) {
+    const parts = spec.split('+').map(s => s.trim());
+    const last = parts.pop();
+    const modifiers = _cdpModifiers(parts);
+    const named = _CDP_KEY_MAP[last];
+    if (named) {
+      await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'keyDown',  modifiers, ...named });
+      await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'keyUp',    modifiers, ...named });
+    } else if (last.length === 1) {
+      // Single character — use type:'char' so it actually inserts text.
+      const code = last.toUpperCase().charCodeAt(0);
+      await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'keyDown', modifiers, key:last, code:'Key'+last.toUpperCase(), keyCode:code });
+      await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'char',    modifiers, key:last, text:last, unmodifiedText:last });
+      await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'keyUp',   modifiers, key:last, code:'Key'+last.toUpperCase(), keyCode:code });
+    } else {
+      // Treat as a literal string to type.
+      for (const ch of last) {
+        await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'char', text:ch, unmodifiedText:ch, key:ch });
+      }
+    }
+  }
+  return { success: true, dispatched: keys };
+}
+
+async function cdpListNetworkRequests(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  const st = _cdpAttached.get(tabId);
+  let rows = st.network;
+  if (params.since_ms) rows = rows.filter(r => r.ts >= params.since_ms);
+  if (params.method_filter) rows = rows.filter(r => (r.method||'').includes(params.method_filter));
+  if (params.url_filter) rows = rows.filter(r => (r.url||'').includes(params.url_filter));
+  const limit = Math.max(1, Math.min(2000, params.limit || 200));
+  if (rows.length > limit) rows = rows.slice(-limit);
+  return { success: true, count: rows.length, total_buffered: st.network.length, requests: rows };
+}
+
+async function cdpGetResponseBody(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  if (!params.request_id) throw new Error("cdp_get_response_body: request_id required");
+  const r = await _cdpSend(tabId, 'Network.getResponseBody', { requestId: params.request_id });
+  return { success: true, body: r.body, base64: !!r.base64Encoded };
+}
+
+async function cdpListConsoleMessages(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  const st = _cdpAttached.get(tabId);
+  let rows = st.console;
+  if (params.level_filter) rows = rows.filter(r => (r.level||'') === params.level_filter);
+  const limit = Math.max(1, Math.min(2000, params.limit || 200));
+  if (rows.length > limit) rows = rows.slice(-limit);
+  return { success: true, count: rows.length, total_buffered: st.console.length, messages: rows };
+}
+
+async function cdpUploadFile(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  if (!params.selector) throw new Error("cdp_upload_file: selector required");
+  if (!Array.isArray(params.file_paths) || params.file_paths.length === 0)
+    throw new Error("cdp_upload_file: file_paths required");
+  const doc = await _cdpSend(tabId, 'DOM.getDocument', { depth: -1, pierce: true });
+  const found = await _cdpSend(tabId, 'DOM.querySelector', { nodeId: doc.root.nodeId, selector: params.selector });
+  if (!found.nodeId) throw new Error("cdp_upload_file: element not found");
+  await _cdpSend(tabId, 'DOM.setFileInputFiles', { nodeId: found.nodeId, files: params.file_paths });
+  return { success: true, files: params.file_paths };
+}
+
+async function waitForDownload(params) {
+  const timeoutMs = Math.max(500, Math.min(120000, params.timeout_ms || 30000));
+  const sinceMs = params.since_ms || (Date.now() - 1000); // tiny grace window
+  const start = Date.now();
+  // First check existing recent downloads.
+  while (Date.now() - start < timeoutMs) {
+    const items = await new Promise(res => chrome.downloads.search({ orderBy: ['-startTime'], limit: 20 }, res));
+    const fresh = items.find(d => new Date(d.startTime).getTime() >= sinceMs && (d.state === 'complete' || d.state === 'in_progress'));
+    if (fresh && fresh.state === 'complete') {
+      return { success: true, id: fresh.id, filename: fresh.filename, url: fresh.url, mime: fresh.mime, bytes: fresh.fileSize, state: fresh.state };
+    }
+    await new Promise(r => setTimeout(r, 600));
+  }
+  return { success: false, error: "wait_for_download: timeout" };
+}
+
+async function getCookies(params) {
+  const filter = {};
+  if (params.url) filter.url = params.url;
+  if (params.domain) filter.domain = params.domain;
+  if (params.name) filter.name = params.name;
+  const cookies = await new Promise(res => chrome.cookies.getAll(filter, res));
+  return { success: true, count: cookies.length, cookies };
+}
+
+async function setCookie(params) {
+  if (!params.url || !params.name) throw new Error("set_cookie: url + name required");
+  const expirationDate = params.expires_seconds
+    ? Math.floor(Date.now()/1000) + params.expires_seconds
+    : undefined;
+  const cookie = await new Promise((res, rej) => {
+    chrome.cookies.set({
+      url: params.url,
+      name: params.name,
+      value: params.value || '',
+      domain: params.domain,
+      path: params.path || '/',
+      secure: params.secure,
+      httpOnly: params.http_only,
+      expirationDate,
+    }, (c) => {
+      const e = chrome.runtime.lastError;
+      if (e) rej(new Error(e.message)); else res(c);
+    });
+  });
+  return { success: !!cookie, cookie };
+}
+
+async function clearCookies(params) {
+  if (!params.url) throw new Error("clear_cookies: url required");
+  if (params.name) {
+    const r = await new Promise(res => chrome.cookies.remove({ url: params.url, name: params.name }, res));
+    return { success: !!r, removed: r };
+  }
+  // Remove all cookies for this URL.
+  const all = await new Promise(res => chrome.cookies.getAll({ url: params.url }, res));
+  const removed = [];
+  for (const c of all) {
+    await new Promise(res => chrome.cookies.remove({ url: params.url, name: c.name }, () => res()));
+    removed.push(c.name);
+  }
+  return { success: true, removed };
+}
+
+async function openIncognitoTab(params) {
+  const url = params.url || 'about:blank';
+  const win = await new Promise(res => chrome.windows.create({ incognito: true, url }, res));
+  const tab = win && win.tabs && win.tabs[0];
+  return { success: true, window_id: win?.id, tab_id: tab?.id, url: tab?.url };
+}
+
+async function emulateDevice(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  if (params.clear) {
+    try { await _cdpSend(tabId, 'Emulation.clearDeviceMetricsOverride', {}); } catch {}
+    try { await _cdpSend(tabId, 'Emulation.setUserAgentOverride', { userAgent: '' }); } catch {}
+    return { success: true, cleared: true };
+  }
+  if (params.width && params.height) {
+    await _cdpSend(tabId, 'Emulation.setDeviceMetricsOverride', {
+      width: params.width, height: params.height,
+      deviceScaleFactor: params.device_scale_factor || 2,
+      mobile: params.mobile !== false,
+    });
+  }
+  if (params.user_agent) {
+    await _cdpSend(tabId, 'Emulation.setUserAgentOverride', { userAgent: params.user_agent });
+  }
+  return { success: true };
 }
 
 async function sendToContentScript(action, data, targetTabId = null) {

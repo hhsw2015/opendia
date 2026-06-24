@@ -17,8 +17,12 @@
     "webNavigation",
     "notifications",
     "bookmarks",
-    "history"
+    "history",
+    "debugger",
+    "cookies",
+    "downloads"
   ],
+  "incognito": "split",
   "host_permissions": [
     "<all_urls>"
   ],
