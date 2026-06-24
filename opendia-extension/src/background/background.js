@@ -38,9 +38,51 @@ class ConnectionManager {
     this.heartbeatInterval = null;
     this.isServiceWorker = browserInfo.isServiceWorker;
     this.isFirefox = browserInfo.isFirefox;
+    // User-set "stay disconnected" flag. Persisted in chrome.storage so it
+    // survives MV3 service-worker restarts. While true, connect() is a
+    // no-op and scheduleReconnect / heartbeat won't pull us back. Lets the
+    // same OpenDia ext binary live in multiple browsers without fighting
+    // over the single :5555 server.
+    this.manualDisconnect = false;
+    this._loadManualFlag();
+  }
+
+  async _loadManualFlag() {
+    try {
+      const r = await browser.storage.local.get('manual_disconnect');
+      this.manualDisconnect = r && r.manual_disconnect === true;
+      if (this.manualDisconnect) console.log('🔌 OpenDia: starting in manual-disconnect mode (storage flag set)');
+    } catch (e) { /* storage may not be ready on very early SW boot */ }
+  }
+
+  async _persistManualFlag(val) {
+    try { await browser.storage.local.set({ manual_disconnect: !!val }); } catch {}
+  }
+
+  async manualDisconnectNow() {
+    this.manualDisconnect = true;
+    await this._persistManualFlag(true);
+    this.clearReconnectInterval();
+    this.clearHeartbeat();
+    if (this.mcpSocket) {
+      try { this.mcpSocket.close(1000, 'user disconnect'); } catch {}
+      this.mcpSocket = null;
+    }
+    console.log('🔌 OpenDia: manual disconnect — will not auto-reconnect until user clicks Reconnect.');
+  }
+
+  async manualReconnectNow() {
+    this.manualDisconnect = false;
+    await this._persistManualFlag(false);
+    this.reconnectAttempts = 0;
+    return this.connect();
   }
 
   async connect() {
+    if (this.manualDisconnect) {
+      console.log('🔌 OpenDia: skipping connect (manual-disconnect flag set)');
+      return;
+    }
     if (this.isServiceWorker) {
       // Chrome MV3: reuse if already open, otherwise create.
       // Opening a fresh socket on every message races the inbound
@@ -242,6 +284,7 @@ class ConnectionManager {
   getStatus() {
     return {
       connected: this.mcpSocket && this.mcpSocket.readyState === WebSocket.OPEN,
+      manualDisconnect: this.manualDisconnect,
       browserInfo: browserInfo,
       connectionType: this.isServiceWorker ? 'temporary' : 'persistent'
     };
@@ -2474,8 +2517,11 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
       tools: tools.map(t => t.name)
     });
   } else if (request.action === "reconnect") {
-    connectionManager.connect();
+    connectionManager.manualReconnectNow();
     sendResponse({ success: true });
+  } else if (request.action === "disconnect") {
+    connectionManager.manualDisconnectNow();
+    sendResponse({ success: true, manualDisconnect: true });
   } else if (request.action === "getPorts") {
     sendResponse({
       current: lastKnownPorts,

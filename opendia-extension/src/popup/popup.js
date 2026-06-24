@@ -46,7 +46,7 @@ function checkStatus() {
       if (runtimeAPI.lastError) {
         updateStatus(false);
       } else {
-        updateStatus(response?.connected || false);
+        updateStatus(response?.connected || false, response?.manualDisconnect || false);
       }
     });
     
@@ -85,25 +85,48 @@ updateServerUrl();
 setInterval(updateServerUrl, 5000);
 
 // Update UI based on connection status
-function updateStatus(connected) {
+function updateStatus(connected, manualDisconnect) {
+  const reBtn = document.getElementById("reconnectBtn");
+  const dcBtn = document.getElementById("disconnectBtn");
   if (connected) {
     statusIndicator.className = "status-indicator connected";
     statusText.innerHTML = `Connected to MCP server
       <span class="tooltip-content">Connected successfully! Server auto-discovery is working. Default ports: WebSocket=5555, HTTP=5556</span>`;
+    if (reBtn) reBtn.disabled = true;
+    if (dcBtn) dcBtn.disabled = false;
+  } else if (manualDisconnect) {
+    statusIndicator.className = "status-indicator disconnected";
+    statusText.innerHTML = `Manually disconnected — auto-reconnect off
+      <span class="tooltip-content">You clicked Disconnect. The extension will stay offline (and won't fight other browsers for the same MCP server) until you click Reconnect.</span>`;
+    if (reBtn) reBtn.disabled = false;
+    if (dcBtn) dcBtn.disabled = true;
   } else {
     statusIndicator.className = "status-indicator disconnected";
     statusText.innerHTML = `Disconnected from MCP server
       <span class="tooltip-content">Start server with: npx opendia. Auto-discovery will find the correct ports. Existing processes are automatically terminated on startup</span>`;
+    if (reBtn) reBtn.disabled = false;
+    if (dcBtn) dcBtn.disabled = false;
   }
 }
 
-// Reconnect button
+// Reconnect button — also clears the manual-disconnect flag
 document.getElementById("reconnectBtn").addEventListener("click", () => {
   if (runtimeAPI?.id) {
-    runtimeAPI.sendMessage({ action: "reconnect" }, (response) => {
-      if (!runtimeAPI.lastError) {
-        setTimeout(checkStatus, 1000);
-      }
+    runtimeAPI.sendMessage({ action: "reconnect" }, () => {
+      setTimeout(checkStatus, 1000);
+    });
+  }
+});
+
+// Disconnect button — closes the socket AND sets a manual-disconnect flag
+// in storage so heartbeat / scheduleReconnect won't pull us back. Stays
+// disconnected until the user clicks Reconnect, even after Chrome wakes
+// the service worker. Useful when you want the same OpenDia ext binary
+// installed in multiple browsers and only one connected at a time.
+document.getElementById("disconnectBtn").addEventListener("click", () => {
+  if (runtimeAPI?.id) {
+    runtimeAPI.sendMessage({ action: "disconnect" }, () => {
+      setTimeout(checkStatus, 500);
     });
   }
 });
