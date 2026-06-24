@@ -1945,14 +1945,28 @@ async function dispatchKeys(params) {
 }
 
 async function captureScreenshot(params) {
-  const tabId = params.tab_id ? await _resolveTabId(params.tab_id) : null;
+  const tabId = params.tab_id ? await _resolveTabId(params.tab_id) : await _resolveTabId(null);
   const format = params.format === 'jpeg' ? 'jpeg' : 'png';
   const quality = format === 'jpeg' ? (params.quality || 90) : undefined;
+  // Primary path: CDP Page.captureScreenshot — works on any tab the
+  // extension can attach to, no activeTab gate.
+  try {
+    await _cdpAttach(tabId);
+    const cdpOpts = { format };
+    if (quality !== undefined) cdpOpts.quality = quality;
+    const r = await _cdpSend(tabId, 'Page.captureScreenshot', cdpOpts);
+    if (r && r.data)
+      return { success: true, mime: format === 'jpeg' ? 'image/jpeg' : 'image/png', base64: r.data, length: r.data.length };
+  } catch (e) {
+    // Fall through to chrome.tabs.captureVisibleTab for the active-tab
+    // case where the user explicitly invoked us through popup.
+  }
+  // Fallback: chrome.tabs.captureVisibleTab. Requires activeTab/permission.
   let windowId;
-  if (tabId) {
+  try {
     const tab = await browser.tabs.get(tabId);
     windowId = tab.windowId;
-  } else {
+  } catch {
     const [active] = await browser.tabs.query({ active: true, currentWindow: true });
     windowId = active && active.windowId;
   }
@@ -1963,7 +1977,6 @@ async function captureScreenshot(params) {
       else resolve(url);
     });
   });
-  // Strip the data: prefix and just return base64 + mime.
   const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
   if (!m) return { success: false, error: "captureVisibleTab returned unexpected data URL" };
   return { success: true, mime: m[1], base64: m[2], length: m[2].length };
