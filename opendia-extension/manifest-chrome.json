@@ -17,11 +17,15 @@
     "webNavigation",
     "notifications",
     "bookmarks",
-    "history"
+    "history",
+    "debugger",
+    "cookies",
+    "downloads"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
+  "incognito": "split",
   "background": {
     "service_worker": "src/background/background.js",
     "type": "module"

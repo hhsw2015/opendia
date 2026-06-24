@@ -25,6 +25,8 @@
     "history",
     "webRequest",
     "webRequestBlocking",
+    "cookies",
+    "downloads",
     "<all_urls>"
   ],
   "background": {
