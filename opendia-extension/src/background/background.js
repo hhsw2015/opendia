@@ -44,7 +44,12 @@ class ConnectionManager {
     // same OpenDia ext binary live in multiple browsers without fighting
     // over the single :5555 server.
     this.manualDisconnect = false;
-    this._loadManualFlag();
+    // Race fix: keep the storage-load promise so every connect() path
+    // can await it. Without this, an early connect() (heartbeat,
+    // scheduleReconnect, or module-load self-connect right after MV3
+    // SW restart) runs while manualDisconnect is still its default
+    // false, opening a websocket the user explicitly disconnected.
+    this.ready = this._loadManualFlag();
   }
 
   async _loadManualFlag() {
@@ -52,7 +57,9 @@ class ConnectionManager {
       const r = await browser.storage.local.get('manual_disconnect');
       this.manualDisconnect = r && r.manual_disconnect === true;
       if (this.manualDisconnect) console.log('🔌 OpenDia: starting in manual-disconnect mode (storage flag set)');
-    } catch (e) { /* storage may not be ready on very early SW boot */ }
+    } catch (e) {
+      console.warn('OpenDia: failed to load manual_disconnect flag', e);
+    }
   }
 
   async _persistManualFlag(val) {
@@ -79,6 +86,10 @@ class ConnectionManager {
   }
 
   async connect() {
+    // Wait for the persisted manual_disconnect flag to load before
+    // honoring connect() — otherwise an SW-startup connect can race
+    // ahead of storage and reopen a socket the user disabled.
+    if (this.ready) await this.ready;
     if (this.manualDisconnect) {
       console.log('🔌 OpenDia: skipping connect (manual-disconnect flag set)');
       return;
@@ -1160,7 +1171,7 @@ function getAvailableTools() {
           return_by_value: { type: "boolean", default: true },
           timeout_ms: { type: "number", default: 10000 }
         },
-        required: ["expression"]
+        required: ["tab_id", "expression"]
       }
     },
     {
@@ -1175,7 +1186,7 @@ function getAvailableTools() {
           button: { type: "string", enum: ["left","right","middle"], default: "left" },
           click_count: { type: "number", default: 1 }
         },
-        required: ["x","y"]
+        required: ["tab_id", "x", "y"]
       }
     },
     {
@@ -1187,7 +1198,7 @@ function getAvailableTools() {
           tab_id: { type: "number" },
           keys: { type: "array", items: { type: "string" }, description: "Sequence to type." }
         },
-        required: ["keys"]
+        required: ["tab_id", "keys"]
       }
     },
     {
@@ -1213,7 +1224,7 @@ function getAvailableTools() {
           tab_id: { type: "number" },
           request_id: { type: "string" }
         },
-        required: ["request_id"]
+        required: ["tab_id", "request_id"]
       }
     },
     {
@@ -1238,7 +1249,7 @@ function getAvailableTools() {
           selector: { type: "string" },
           file_paths: { type: "array", items: { type: "string" } }
         },
-        required: ["selector","file_paths"]
+        required: ["tab_id", "selector", "file_paths"]
       }
     },
     {
@@ -1317,10 +1328,27 @@ function getAvailableTools() {
           mobile: { type: "boolean", default: true },
           user_agent: { type: "string" },
           clear: { type: "boolean", default: false }
-        }
+        },
+        required: ["tab_id"]
       }
     },
   ];
+
+  // Strip CDP / Chromium-specific power tools when running under Firefox
+  // (no chrome.debugger / Emulation.* / chrome.windows.create({incognito})
+  // semantics there). Otherwise the MCP host advertises tools that
+  // unconditionally throw a misleading "chrome.debugger is undefined"
+  // when called.
+  if (browserInfo.isFirefox) {
+    const chromiumOnly = new Set([
+      "cdp_evaluate", "cdp_input_mouse", "cdp_input_keys",
+      "cdp_list_network_requests", "cdp_get_response_body",
+      "cdp_list_console_messages", "cdp_upload_file",
+      "open_incognito_tab", "emulate_device",
+    ]);
+    return tools.filter(t => !chromiumOnly.has(t.name));
+  }
+  return tools;
 }
 
 // Handle MCP requests with enhanced automation tools
@@ -1835,13 +1863,32 @@ async function _cdpAttach(tabId) {
 }
 
 async function _doAttach(tabId) {
+  let alreadyAttached = false;
   await new Promise((res, rej) => {
     chrome.debugger.attach({ tabId }, '1.3', () => {
       const e = chrome.runtime.lastError;
-      if (e && !/already attached/i.test(e.message || '')) rej(new Error(e.message));
-      else res();
+      if (!e) return res();
+      if (/already attached/i.test(e.message || '')) {
+        alreadyAttached = true; res(); return;
+      }
+      rej(new Error(e.message));
     });
   });
+  // SW-restart fix: if a stale attachment from a previous SW lifetime
+  // is still around, our in-memory state + onEvent listeners are gone
+  // and the buffers below would silently never fill. Detach + reattach
+  // so the listeners reattach to a fresh attachment we own.
+  if (alreadyAttached) {
+    try {
+      await new Promise((res) => chrome.debugger.detach({ tabId }, () => { void chrome.runtime.lastError; res(); }));
+      await new Promise((res, rej) => chrome.debugger.attach({ tabId }, '1.3', () => {
+        const e = chrome.runtime.lastError;
+        if (e) rej(new Error(e.message)); else res();
+      }));
+    } catch (e) {
+      console.warn('OpenDia: stale CDP re-attach failed', e);
+    }
+  }
   const state = {
     attachedAt: Date.now(),
     network: [],
@@ -1849,10 +1896,9 @@ async function _doAttach(tabId) {
     pendingByReqId: new Map(),
   };
   _cdpAttached.set(tabId, state);
-  // Enable the domains we capture.
-  try { await _cdpSend(tabId, 'Network.enable', {}); } catch {}
-  try { await _cdpSend(tabId, 'Runtime.enable', {}); } catch {}
-  try { await _cdpSend(tabId, 'Log.enable', {}); } catch {}
+  try { await _cdpSend(tabId, 'Network.enable', {}); } catch (e) { console.warn('OpenDia CDP Network.enable failed', e); }
+  try { await _cdpSend(tabId, 'Runtime.enable', {}); } catch (e) { console.warn('OpenDia CDP Runtime.enable failed', e); }
+  try { await _cdpSend(tabId, 'Log.enable',     {}); } catch (e) { console.warn('OpenDia CDP Log.enable failed', e); }
   return state;
 }
 
@@ -1988,6 +2034,19 @@ async function cdpInputKeys(params) {
   await _cdpAttach(tabId);
   const keys = params.keys;
   if (!Array.isArray(keys)) throw new Error("cdp_input_keys: keys array required");
+  // Inner helper: emit a full keyDown + (char if printable) + keyUp triple
+  // for one character. React onKeyDown / autocomplete dropdowns / IME
+  // consumers all need keyDown to fire, so we never emit char alone.
+  async function emitChar(ch, modifiers) {
+    const code = ch.toUpperCase().charCodeAt(0);
+    const isLetter = ch.length === 1 && /[a-zA-Z]/.test(ch);
+    const codeStr = isLetter ? 'Key' + ch.toUpperCase()
+                  : (ch.length === 1 ? 'Key' + ch.toUpperCase() : ch);
+    await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'keyDown', modifiers, key:ch, code:codeStr, keyCode:code });
+    await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'char',    modifiers, key:ch, text:ch, unmodifiedText:ch });
+    await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'keyUp',   modifiers, key:ch, code:codeStr, keyCode:code });
+  }
+
   for (const spec of keys) {
     const parts = spec.split('+').map(s => s.trim());
     const last = parts.pop();
@@ -1997,16 +2056,12 @@ async function cdpInputKeys(params) {
       await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'keyDown',  modifiers, ...named });
       await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'keyUp',    modifiers, ...named });
     } else if (last.length === 1) {
-      // Single character — use type:'char' so it actually inserts text.
-      const code = last.toUpperCase().charCodeAt(0);
-      await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'keyDown', modifiers, key:last, code:'Key'+last.toUpperCase(), keyCode:code });
-      await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'char',    modifiers, key:last, text:last, unmodifiedText:last });
-      await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'keyUp',   modifiers, key:last, code:'Key'+last.toUpperCase(), keyCode:code });
+      await emitChar(last, modifiers);
     } else {
-      // Treat as a literal string to type.
-      for (const ch of last) {
-        await _cdpSend(tabId, 'Input.dispatchKeyEvent', { type:'char', text:ch, unmodifiedText:ch, key:ch });
-      }
+      // Multi-character literal (e.g. "hello"): emit a full key triple per
+      // character so onKeyDown handlers see each one. modifiers apply to
+      // every character — usually parts is empty here so modifiers === 0.
+      for (const ch of last) await emitChar(ch, modifiers);
     }
   }
   return { success: true, dispatched: keys };
@@ -2050,7 +2105,9 @@ async function cdpUploadFile(params) {
   if (!params.selector) throw new Error("cdp_upload_file: selector required");
   if (!Array.isArray(params.file_paths) || params.file_paths.length === 0)
     throw new Error("cdp_upload_file: file_paths required");
-  const doc = await _cdpSend(tabId, 'DOM.getDocument', { depth: -1, pierce: true });
+  // depth:0 only sends the document node back — DOM.querySelector only
+  // needs root.nodeId, full-tree pierce here would copy megabytes per call.
+  const doc = await _cdpSend(tabId, 'DOM.getDocument', { depth: 0 });
   const found = await _cdpSend(tabId, 'DOM.querySelector', { nodeId: doc.root.nodeId, selector: params.selector });
   if (!found.nodeId) throw new Error("cdp_upload_file: element not found");
   await _cdpSend(tabId, 'DOM.setFileInputFiles', { nodeId: found.nodeId, files: params.file_paths });
@@ -2059,7 +2116,12 @@ async function cdpUploadFile(params) {
 
 async function waitForDownload(params) {
   const timeoutMs = Math.max(500, Math.min(120000, params.timeout_ms || 30000));
-  const sinceMs = params.since_ms || (Date.now() - 1000); // tiny grace window
+  // Floor on the call moment, not 1s before — otherwise a previously
+  // completed download in the chrome.downloads search results gets
+  // mistaken for the one we are waiting for and the tool returns
+  // "success" without ever waiting. Callers who want a window into the
+  // recent past must pass since_ms explicitly.
+  const sinceMs = params.since_ms || Date.now();
   const start = Date.now();
   // First check existing recent downloads.
   while (Date.now() - start < timeoutMs) {

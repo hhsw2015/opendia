@@ -113,7 +113,7 @@ function updateStatus(connected, manualDisconnect) {
 document.getElementById("reconnectBtn").addEventListener("click", () => {
   if (runtimeAPI?.id) {
     runtimeAPI.sendMessage({ action: "reconnect" }, () => {
-      setTimeout(checkStatus, 1000);
+      if (!runtimeAPI.lastError) setTimeout(checkStatus, 1000);
     });
   }
 });
@@ -126,7 +126,7 @@ document.getElementById("reconnectBtn").addEventListener("click", () => {
 document.getElementById("disconnectBtn").addEventListener("click", () => {
   if (runtimeAPI?.id) {
     runtimeAPI.sendMessage({ action: "disconnect" }, () => {
-      setTimeout(checkStatus, 500);
+      if (!runtimeAPI.lastError) setTimeout(checkStatus, 500);
     });
   }
 });
