@@ -2297,16 +2297,37 @@ async function setCookie(params) {
 
 async function clearCookies(params) {
   if (!params.url) throw new Error("clear_cookies: url required");
+  const withTimeout = (p, ms, label) => Promise.race([
+    p,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(label + ' timeout')), ms))
+  ]);
   if (params.name) {
-    const r = await new Promise(res => chrome.cookies.remove({ url: params.url, name: params.name }, res));
-    return { success: !!r, removed: r };
+    try {
+      const r = await withTimeout(
+        new Promise(res => chrome.cookies.remove({ url: params.url, name: params.name }, res)),
+        4000, 'cookies.remove');
+      return { success: !!r, removed: r };
+    } catch (e) {
+      return { success: false, error: String(e?.message || e) };
+    }
   }
   // Remove all cookies for this URL.
-  const all = await new Promise(res => chrome.cookies.getAll({ url: params.url }, res));
+  let all;
+  try {
+    all = await withTimeout(
+      new Promise(res => chrome.cookies.getAll({ url: params.url }, res)),
+      4000, 'cookies.getAll');
+  } catch (e) {
+    return { success: false, error: String(e?.message || e) };
+  }
   const removed = [];
   for (const c of all) {
-    await new Promise(res => chrome.cookies.remove({ url: params.url, name: c.name }, () => res()));
-    removed.push(c.name);
+    try {
+      await withTimeout(
+        new Promise(res => chrome.cookies.remove({ url: params.url, name: c.name }, () => res())),
+        2000, 'cookies.remove');
+      removed.push(c.name);
+    } catch { /* skip stuck ones */ }
   }
   return { success: true, removed };
 }
@@ -2347,9 +2368,17 @@ async function emulateDevice(params) {
 
 async function clipboardReadText(params) {
   const tabId = await _resolveTabId(params.tab_id);
+  // Activate target tab — clipboard API requires a focused page.
+  try { await browser.tabs.update(tabId, { active: true }); } catch {}
   await _cdpAttach(tabId);
+  // Race the page readText() with our own 4s deadline so we never
+  // exceed the bridge's 30s tool timeout. clipboard.readText() can
+  // hang indefinitely if the doc is permission-blocked.
   const r = await _cdpSend(tabId, 'Runtime.evaluate', {
-    expression: "navigator.clipboard.readText()",
+    expression: `Promise.race([
+      navigator.clipboard.readText(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('clipboard.readText timeout')), 4000))
+    ])`,
     awaitPromise: true,
     returnByValue: true,
     userGesture: true,
@@ -2485,9 +2514,17 @@ async function nameSession(params) {
   const tabs = (sessions[params.session_id] ?? []).filter(Boolean);
   if (tabs.length === 0) return { success: true, named: false, reason: "no claimed tabs" };
   // Group + rename. Errors here are non-fatal — we still return success.
+  // Hard timeout: chrome.tabs.group can hang on non-groupable tabs
+  // (incognito tabs, tabs already in another window, sleeping tabs).
   try {
-    const groupId = await chrome.tabs.group({ tabIds: tabs });
-    await chrome.tabGroups.update(groupId, { title: params.name });
+    const groupId = await Promise.race([
+      chrome.tabs.group({ tabIds: tabs }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('tabs.group timeout')), 3000))
+    ]);
+    await Promise.race([
+      chrome.tabGroups.update(groupId, { title: params.name }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('tabGroups.update timeout')), 2000))
+    ]);
     return { success: true, named: true, group_id: groupId, tab_count: tabs.length };
   } catch (e) {
     return { success: true, named: false, reason: String(e?.message || e) };
