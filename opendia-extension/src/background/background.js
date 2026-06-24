@@ -1098,7 +1098,8 @@ function getAvailableTools() {
           tab_id: { type: "number", description: "Target tab id." },
           selector: { type: "string", description: "CSS selector. Supports ' >>> ' shadow piercing.", default: "button, [role=button], input, textarea, select, a[href]" },
           limit: { type: "number", default: 100, description: "Cap on results." },
-          visible_only: { type: "boolean", default: true, description: "Filter to elements with non-zero bounding box." }
+          visible_only: { type: "boolean", default: true, description: "Filter to elements with non-zero bounding box." },
+          all_frames: { type: "boolean", default: false, description: "Walk every iframe in the tab and merge results (each row carries a frame_id field)." }
         }
       }
     },
@@ -1697,6 +1698,33 @@ async function _runInMain(tabId, payload, world) {
   return r.result;
 }
 
+// Run the same MAIN-world dispatcher across every frame in the tab and
+// merge the per-frame results. Used by dom_query_all when callers ask
+// for cross-frame enumeration; safe to call when there's only the main
+// frame.
+async function _runInAllFrames(tabId, payload) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    world: 'MAIN',
+    func: _odMainWorld,
+    args: [payload],
+  });
+  const merged = { count: 0, total_matches: 0, elements: [], frames: 0 };
+  for (const r of results) {
+    if (!r || !r.result || !r.result.ok) continue;
+    const data = r.result.result || {};
+    merged.frames++;
+    merged.total_matches += data.total_matches || 0;
+    if (Array.isArray(data.elements)) {
+      for (const el of data.elements) {
+        merged.elements.push({ ...el, frame_id: r.frameId });
+      }
+    }
+  }
+  merged.count = merged.elements.length;
+  return merged;
+}
+
 async function evaluateJs(params) {
   // MV3 page CSP forbids constructing a function from a string. Without
   // CSP bypass via chrome.debugger, we can't honor arbitrary JS in the
@@ -1724,12 +1752,15 @@ async function domQuery(params) {
 
 async function domQueryAll(params) {
   const tabId = await _resolveTabId(params.tab_id);
-  const result = await _runInMain(tabId, {
+  const payload = {
     op: 'dom_query_all',
     selector: params.selector || 'button, [role=button], input, textarea, select, a[href]',
     limit: params.limit || 100,
     visibleOnly: params.visible_only !== false,
-  });
+  };
+  const result = params.all_frames
+    ? await _runInAllFrames(tabId, payload)
+    : await _runInMain(tabId, payload);
   return { success: true, ...result };
 }
 
