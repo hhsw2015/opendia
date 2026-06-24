@@ -1250,254 +1250,261 @@ async function _exec(tabId, world, func, args = []) {
   return main.result;
 }
 
-// The selector resolver used inside MAIN-world execution. Inlined into
-// each func via .toString() because MAIN-world script can't import.
-function _selectorResolverSource() {
-  return `
-function _odResolve(sel, nth = 0, allMatches = false) {
-  const parts = sel.split(' >>> ').map(s => s.trim()).filter(Boolean);
-  if (parts.length === 0) return allMatches ? [] : null;
-  // walk shadow boundaries: each part queried against previous match's
-  // shadowRoot (or document for the first one).
-  let roots = [document];
-  for (let i = 0; i < parts.length; i++) {
-    const last = i === parts.length - 1;
-    const next = [];
-    for (const root of roots) {
-      const found = root.querySelectorAll(parts[i]);
-      for (const el of found) {
-        if (last) next.push(el);
-        else if (el.shadowRoot) next.push(el.shadowRoot);
+// MAIN-world entrypoint. Receives the whole user payload as a JSON-encoded
+// arg (CSP in MV3 forbids `new Function()`, so we can't compile user code
+// in the service worker — instead this one real function runs in the page
+// and dispatches on `op`). Returns { ok, result } / { ok:false, error }.
+function _odMainWorld(payload) {
+  const { op, selector, action, value, nth, visibleOnly, limit, timeoutMs, requireVisible, keys, expression, args } = payload;
+
+  function resolve(sel, nthIdx, allMatches) {
+    const parts = String(sel || '').split(' >>> ').map(s => s.trim()).filter(Boolean);
+    if (parts.length === 0) return allMatches ? [] : null;
+    let roots = [document];
+    for (let i = 0; i < parts.length; i++) {
+      const last = i === parts.length - 1;
+      const next = [];
+      for (const root of roots) {
+        let found;
+        try { found = root.querySelectorAll(parts[i]); } catch { return allMatches ? [] : null; }
+        for (const el of found) {
+          if (last) next.push(el);
+          else if (el.shadowRoot) next.push(el.shadowRoot);
+        }
       }
+      roots = next;
+      if (!last && roots.length === 0) break;
     }
-    roots = next;
-    if (!last && roots.length === 0) break;
+    if (allMatches) return roots;
+    return roots[nthIdx || 0] || null;
   }
-  if (allMatches) return roots;
-  return roots[nth] || null;
+  function visible(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const cs = getComputedStyle(el);
+    return cs.display !== 'none' && cs.visibility !== 'hidden' && cs.opacity !== '0';
+  }
+  function describe(el) {
+    const r = el.getBoundingClientRect ? el.getBoundingClientRect() : { x:0,y:0,width:0,height:0 };
+    return {
+      tag: el.tagName ? el.tagName.toLowerCase() : null,
+      id: el.id || null,
+      classes: el.className && typeof el.className === 'string' ? el.className.split(/\s+/).filter(Boolean) : [],
+      text: (el.innerText || el.textContent || '').trim().slice(0, 200),
+      role: el.getAttribute ? el.getAttribute('role') : null,
+      name: el.getAttribute ? (el.getAttribute('name') || el.getAttribute('aria-label') || el.getAttribute('title')) : null,
+      type: el.type || null,
+      value: el.value !== undefined ? String(el.value).slice(0, 200) : null,
+      href: el.href || null,
+      placeholder: el.placeholder || null,
+      visible: visible(el),
+      rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+    };
+  }
+  function parseKey(spec) {
+    const parts = spec.split('+').map(s => s.trim()).filter(Boolean);
+    const mods = { ctrl:false, meta:false, alt:false, shift:false };
+    let key = parts.pop();
+    for (const p of parts) {
+      const low = p.toLowerCase();
+      if (low === 'ctrl' || low === 'control') mods.ctrl = true;
+      else if (low === 'meta' || low === 'cmd' || low === 'command') mods.meta = true;
+      else if (low === 'alt' || low === 'option') mods.alt = true;
+      else if (low === 'shift') mods.shift = true;
+    }
+    return { key, mods };
+  }
+
+  try {
+    if (op === 'evaluate_js') {
+      // CSP: can't construct a function from a string. Document this and refuse cleanly.
+      return { ok: false, error: "evaluate_js is unavailable in MV3 (page CSP forbids new Function). Use dom_query / dom_query_all / dispatch_keys / wait_for_selector instead." };
+    }
+
+    if (op === 'dom_query') {
+      const el = resolve(selector, nth, false);
+      if (!el) return { ok: true, result: { found: false } };
+      const info = describe(el);
+      let outcome = null;
+      switch (action) {
+        case 'click':
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+          if (typeof el.click === 'function') el.click();
+          else el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          outcome = 'clicked';
+          break;
+        case 'fill': {
+          el.focus();
+          if ('value' in el) {
+            const nativeSetter = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value');
+            if (nativeSetter && nativeSetter.set) nativeSetter.set.call(el, value);
+            else el.value = value;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          } else if (el.isContentEditable) {
+            el.textContent = value;
+            el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+          } else {
+            return { ok: false, error: 'dom_query fill: element is not fillable' };
+          }
+          outcome = 'filled';
+          break;
+        }
+        case 'focus': el.focus(); outcome = 'focused'; break;
+        case 'scroll_into_view':
+          el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+          outcome = 'scrolled'; break;
+        case 'get_text':
+          outcome = (el.innerText || el.textContent || '').trim(); break;
+        case 'get_attr':
+          outcome = el.getAttribute ? el.getAttribute(value) : null; break;
+        case 'get_html':
+          outcome = el.outerHTML; break;
+        case 'exists':
+          outcome = true; break;
+        case 'submit_form': {
+          let form = el.tagName === 'FORM' ? el : el.closest('form');
+          if (!form) return { ok: false, error: 'submit_form: no enclosing <form>' };
+          if (form.requestSubmit) form.requestSubmit(); else form.submit();
+          outcome = 'submitted'; break;
+        }
+        default:
+          return { ok: false, error: 'dom_query: unknown action ' + action };
+      }
+      return { ok: true, result: { found: true, element: info, outcome } };
+    }
+
+    if (op === 'dom_query_all') {
+      const all = resolve(selector, 0, true);
+      const out = [];
+      const cap = Math.max(1, Math.min(2000, limit || 100));
+      for (const el of all) {
+        if (visibleOnly && !visible(el)) continue;
+        out.push(describe(el));
+        if (out.length >= cap) break;
+      }
+      return { ok: true, result: { count: out.length, total_matches: all.length, elements: out } };
+    }
+
+    if (op === 'wait_for_selector') {
+      return new Promise((resolve2) => {
+        const start = Date.now();
+        const cap = Math.max(100, Math.min(60000, timeoutMs || 8000));
+        function tick() {
+          const el = resolve(selector, 0, false);
+          if (el && (!requireVisible || visible(el))) {
+            resolve2({ ok: true, result: { matched: true, elapsed_ms: Date.now() - start, element: describe(el) } });
+            return;
+          }
+          if (Date.now() - start >= cap) {
+            resolve2({ ok: true, result: { matched: false, elapsed_ms: Date.now() - start } });
+            return;
+          }
+          requestAnimationFrame(tick);
+        }
+        tick();
+      });
+    }
+
+    if (op === 'dispatch_keys') {
+      let target = selector ? resolve(selector, 0, false) : (document.activeElement || document.body);
+      if (!target) return { ok: true, result: { dispatched: false, reason: 'no target' } };
+      target.focus && target.focus();
+      const dispatched = [];
+      for (const spec of keys) {
+        const { key, mods } = parseKey(spec);
+        const init = {
+          key, code: key.length === 1 ? 'Key' + key.toUpperCase() : key,
+          bubbles: true, cancelable: true, composed: true,
+          ctrlKey: mods.ctrl, metaKey: mods.meta, altKey: mods.alt, shiftKey: mods.shift,
+        };
+        target.dispatchEvent(new KeyboardEvent('keydown', init));
+        if (key.length === 1) target.dispatchEvent(new KeyboardEvent('keypress', init));
+        target.dispatchEvent(new KeyboardEvent('keyup', init));
+        dispatched.push(spec);
+      }
+      return { ok: true, result: { dispatched: true, keys: dispatched, target_tag: target.tagName ? target.tagName.toLowerCase() : null } };
+    }
+
+    return { ok: false, error: 'unknown op ' + op };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  }
 }
-function _odVisible(el) {
-  if (!el || !el.getBoundingClientRect) return false;
-  const r = el.getBoundingClientRect();
-  if (r.width === 0 || r.height === 0) return false;
-  const cs = getComputedStyle(el);
-  return cs.display !== 'none' && cs.visibility !== 'hidden' && cs.opacity !== '0';
-}
-function _odDescribe(el) {
-  const r = el.getBoundingClientRect ? el.getBoundingClientRect() : { x:0,y:0,width:0,height:0 };
-  return {
-    tag: el.tagName ? el.tagName.toLowerCase() : null,
-    id: el.id || null,
-    classes: el.className && typeof el.className === 'string' ? el.className.split(/\\s+/).filter(Boolean) : [],
-    text: (el.innerText || el.textContent || '').trim().slice(0, 120),
-    role: el.getAttribute ? el.getAttribute('role') : null,
-    name: el.getAttribute ? (el.getAttribute('name') || el.getAttribute('aria-label')) : null,
-    type: el.type || null,
-    value: el.value !== undefined ? String(el.value).slice(0, 200) : null,
-    href: el.href || null,
-    visible: _odVisible(el),
-    rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
-  };
-}
-`;
+
+async function _runInMain(tabId, payload, world) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: world || 'MAIN',
+    func: _odMainWorld,
+    args: [payload],
+  });
+  const main = results.find(r => r.frameId === 0) || results[0];
+  if (!main) throw new Error("executeScript returned no frames");
+  const r = main.result;
+  if (!r || typeof r !== 'object') throw new Error("MAIN world returned no payload");
+  if (!r.ok) throw new Error(r.error || "MAIN world reported failure");
+  return r.result;
 }
 
 async function evaluateJs(params) {
-  const tabId = await _resolveTabId(params.tab_id);
-  const expression = params.expression;
-  if (!expression || typeof expression !== 'string')
-    throw new Error("evaluate_js: expression is required");
-  const world = params.world === 'ISOLATED' ? 'ISOLATED' : 'MAIN';
-  const args = Array.isArray(params.args) ? params.args : [];
-  const timeoutMs = Math.max(100, Math.min(60000, params.timeout_ms || 5000));
-
-  // Wrap user expression in an async function so they can use await.
-  // Inject a Promise.race timeout so a runaway script can't hang the
-  // service worker handling thread.
-  const wrapped = new Function(
-    "__args", "__timeout",
-    `return Promise.race([
-       (async function(...args){ ${expression} }).apply(null, __args),
-       new Promise((_, rej) => setTimeout(() => rej(new Error("evaluate_js: timeout after " + __timeout + "ms")), __timeout))
-     ]);`
-  );
-
-  const result = await _exec(tabId, world, wrapped, [args, timeoutMs]);
-  return { success: true, result: result === undefined ? null : result };
+  // MV3 page CSP forbids constructing a function from a string. Without
+  // CSP bypass via chrome.debugger, we can't honor arbitrary JS in the
+  // page world. Tell the caller to use dom_query / dom_query_all /
+  // dispatch_keys instead.
+  return {
+    success: false,
+    error: "evaluate_js requires Function-from-string, which MV3 + page CSP forbid. Use browser_dom_query / browser_dom_query_all / browser_dispatch_keys / browser_wait_for_selector for DOM operations."
+  };
 }
 
 async function domQuery(params) {
   const tabId = await _resolveTabId(params.tab_id);
-  const selector = params.selector;
-  const action = params.action;
-  const value = params.value ?? null;
-  const nth = params.nth || 0;
-  if (!selector) throw new Error("dom_query: selector required");
-  if (!action) throw new Error("dom_query: action required");
-
-  const src = _selectorResolverSource();
-  // Build a function that, in MAIN world, resolves selector then runs the action.
-  const func = new Function("selector", "action", "value", "nth", `
-    ${src}
-    const el = _odResolve(selector, nth);
-    if (!el) return { found: false };
-    const info = _odDescribe(el);
-    let outcome = null;
-    switch (action) {
-      case 'click':
-        el.scrollIntoView({ block: 'center', inline: 'center' });
-        if (typeof el.click === 'function') el.click();
-        else el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-        outcome = 'clicked';
-        break;
-      case 'fill': {
-        el.focus();
-        if ('value' in el) {
-          const nativeSetter = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value');
-          if (nativeSetter && nativeSetter.set) nativeSetter.set.call(el, value);
-          else el.value = value;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        } else if (el.isContentEditable) {
-          el.textContent = value;
-          el.dispatchEvent(new InputEvent('input', { bubbles: true }));
-        } else {
-          throw new Error('dom_query fill: element is not fillable');
-        }
-        outcome = 'filled';
-        break;
-      }
-      case 'focus':
-        el.focus();
-        outcome = 'focused';
-        break;
-      case 'scroll_into_view':
-        el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
-        outcome = 'scrolled';
-        break;
-      case 'get_text':
-        outcome = (el.innerText || el.textContent || '').trim();
-        break;
-      case 'get_attr':
-        outcome = el.getAttribute ? el.getAttribute(value) : null;
-        break;
-      case 'get_html':
-        outcome = el.outerHTML;
-        break;
-      case 'exists':
-        outcome = true;
-        break;
-      case 'submit_form': {
-        let form = el.tagName === 'FORM' ? el : el.closest('form');
-        if (!form) throw new Error('submit_form: no enclosing <form>');
-        if (form.requestSubmit) form.requestSubmit(); else form.submit();
-        outcome = 'submitted';
-        break;
-      }
-      default:
-        throw new Error('dom_query: unknown action ' + action);
-    }
-    return { found: true, element: info, outcome };
-  `);
-  const result = await _exec(tabId, 'MAIN', func, [selector, action, value, nth]);
+  if (!params.selector) throw new Error("dom_query: selector required");
+  if (!params.action) throw new Error("dom_query: action required");
+  const result = await _runInMain(tabId, {
+    op: 'dom_query',
+    selector: params.selector,
+    action: params.action,
+    value: params.value ?? null,
+    nth: params.nth || 0,
+  });
   return { success: true, ...result };
 }
 
 async function domQueryAll(params) {
   const tabId = await _resolveTabId(params.tab_id);
-  const selector = params.selector || 'button, [role=button], input, textarea, select, a[href]';
-  const limit = Math.max(1, Math.min(2000, params.limit || 100));
-  const visibleOnly = params.visible_only !== false;
-
-  const src = _selectorResolverSource();
-  const func = new Function("selector", "limit", "visibleOnly", `
-    ${src}
-    const all = _odResolve(selector, 0, true);
-    const out = [];
-    for (const el of all) {
-      if (visibleOnly && !_odVisible(el)) continue;
-      out.push(_odDescribe(el));
-      if (out.length >= limit) break;
-    }
-    return { count: out.length, total_matches: all.length, elements: out };
-  `);
-  const result = await _exec(tabId, 'MAIN', func, [selector, limit, visibleOnly]);
+  const result = await _runInMain(tabId, {
+    op: 'dom_query_all',
+    selector: params.selector || 'button, [role=button], input, textarea, select, a[href]',
+    limit: params.limit || 100,
+    visibleOnly: params.visible_only !== false,
+  });
   return { success: true, ...result };
 }
 
 async function waitForSelector(params) {
   const tabId = await _resolveTabId(params.tab_id);
-  const selector = params.selector;
-  const timeoutMs = Math.max(100, Math.min(60000, params.timeout_ms || 8000));
-  const requireVisible = params.visible !== false;
-  if (!selector) throw new Error("wait_for_selector: selector required");
-
-  const src = _selectorResolverSource();
-  const func = new Function("selector", "timeoutMs", "requireVisible", `
-    ${src}
-    return new Promise((resolve) => {
-      const start = Date.now();
-      function tick() {
-        const el = _odResolve(selector);
-        if (el && (!requireVisible || _odVisible(el))) {
-          resolve({ matched: true, elapsed_ms: Date.now() - start, element: _odDescribe(el) });
-          return;
-        }
-        if (Date.now() - start >= timeoutMs) {
-          resolve({ matched: false, elapsed_ms: Date.now() - start });
-          return;
-        }
-        requestAnimationFrame(tick);
-      }
-      tick();
-    });
-  `);
-  const result = await _exec(tabId, 'MAIN', func, [selector, timeoutMs, requireVisible]);
+  if (!params.selector) throw new Error("wait_for_selector: selector required");
+  const result = await _runInMain(tabId, {
+    op: 'wait_for_selector',
+    selector: params.selector,
+    timeoutMs: params.timeout_ms || 8000,
+    requireVisible: params.visible !== false,
+  });
   return { success: true, ...result };
 }
 
 async function dispatchKeys(params) {
   const tabId = await _resolveTabId(params.tab_id);
-  const keys = params.keys;
-  if (!Array.isArray(keys) || keys.length === 0)
+  if (!Array.isArray(params.keys) || params.keys.length === 0)
     throw new Error("dispatch_keys: keys array required");
-  const selector = params.selector || null;
-  const src = _selectorResolverSource();
-
-  const func = new Function("selector", "keys", `
-    ${src}
-    function _parseKey(spec) {
-      const parts = spec.split('+').map(s => s.trim()).filter(Boolean);
-      const mods = { ctrl:false, meta:false, alt:false, shift:false };
-      let key = parts.pop();
-      for (const p of parts) {
-        const low = p.toLowerCase();
-        if (low === 'ctrl' || low === 'control') mods.ctrl = true;
-        else if (low === 'meta' || low === 'cmd' || low === 'command') mods.meta = true;
-        else if (low === 'alt' || low === 'option') mods.alt = true;
-        else if (low === 'shift') mods.shift = true;
-      }
-      return { key, mods };
-    }
-    let target = selector ? _odResolve(selector) : (document.activeElement || document.body);
-    if (!target) return { dispatched: false, reason: 'no target' };
-    target.focus && target.focus();
-    const dispatched = [];
-    for (const spec of keys) {
-      const { key, mods } = _parseKey(spec);
-      const init = {
-        key, code: key.length === 1 ? 'Key' + key.toUpperCase() : key,
-        bubbles: true, cancelable: true, composed: true,
-        ctrlKey: mods.ctrl, metaKey: mods.meta, altKey: mods.alt, shiftKey: mods.shift,
-      };
-      target.dispatchEvent(new KeyboardEvent('keydown', init));
-      if (key.length === 1) target.dispatchEvent(new KeyboardEvent('keypress', init));
-      target.dispatchEvent(new KeyboardEvent('keyup', init));
-      dispatched.push(spec);
-    }
-    return { dispatched: true, keys: dispatched, target_tag: target.tagName ? target.tagName.toLowerCase() : null };
-  `);
-  const result = await _exec(tabId, 'MAIN', func, [selector, keys]);
+  const result = await _runInMain(tabId, {
+    op: 'dispatch_keys',
+    selector: params.selector || null,
+    keys: params.keys,
+  });
   return { success: true, ...result };
 }
 
