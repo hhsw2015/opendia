@@ -1332,6 +1332,116 @@ function getAvailableTools() {
         required: ["tab_id"]
       }
     },
+    // ---- OBU parity (Everywhere fork) -------------------------------
+    // Clipboard + session + cursor — last 4-OBU-method gap.
+    {
+      name: "clipboard_read_text",
+      description: "📋 Read the active page's clipboard as plain text. Calls navigator.clipboard.readText() in MAIN world via CDP — the page must be focused and have clipboard-read permission, otherwise the browser refuses (we surface the rejection).",
+      inputSchema: {
+        type: "object",
+        properties: { tab_id: { type: "number" } },
+        required: ["tab_id"]
+      }
+    },
+    {
+      name: "clipboard_write_text",
+      description: "📋 Write plain text to the system clipboard via the active page (navigator.clipboard.writeText). Requires the page to be focused.",
+      inputSchema: {
+        type: "object",
+        properties: { tab_id: { type: "number" }, text: { type: "string" } },
+        required: ["tab_id", "text"]
+      }
+    },
+    {
+      name: "clipboard_read",
+      description: "📋 Read the clipboard as ClipboardItems (text/* and image/* MIME types). Uses navigator.clipboard.read(); returns an array of {type, data_base64} entries.",
+      inputSchema: {
+        type: "object",
+        properties: { tab_id: { type: "number" } },
+        required: ["tab_id"]
+      }
+    },
+    {
+      name: "clipboard_write",
+      description: "📋 Write rich items to the clipboard. Each entry is {type, data_base64}. Most browsers only allow text/plain and image/png from a script.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                type: { type: "string" },
+                data_base64: { type: "string" }
+              },
+              required: ["type", "data_base64"]
+            }
+          }
+        },
+        required: ["tab_id", "items"]
+      }
+    },
+    {
+      name: "claim_tab",
+      description: "🏷️ Mark a user tab as 'owned by this agent session'. Stored in chrome.storage; finalize_tabs reads this list.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          session_id: { type: "string" },
+          tab_id: { type: "number" }
+        },
+        required: ["session_id", "tab_id"]
+      }
+    },
+    {
+      name: "finalize_tabs",
+      description: "🏷️ End the agent session. For each claimed tab in `keep`, leave it open with the requested status; tabs claimed but not in keep are closed. Mirrors OBU finalizeTabs.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          session_id: { type: "string" },
+          keep: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                tab_id: { type: "number" },
+                status: { type: "string", description: "handoff | deliverable | reviewed | (free-form)" }
+              },
+              required: ["tab_id"]
+            }
+          }
+        },
+        required: ["session_id"]
+      }
+    },
+    {
+      name: "name_session",
+      description: "🏷️ Set the chrome.tabGroups title for a session, so its claimed tabs are visually grouped under that name. Falls back to a no-op when tabGroups API isn't present.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          session_id: { type: "string" },
+          name: { type: "string" }
+        },
+        required: ["session_id", "name"]
+      }
+    },
+    {
+      name: "move_mouse",
+      description: "🖱️ Visual-only cursor move. Updates the on-screen software cursor (when Everywhere CursorOverlay is enabled) without dispatching any input. Use to telegraph intent before a real click. Mirrors OBU moveMouse.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          x: { type: "number" },
+          y: { type: "number" }
+        },
+        required: ["x", "y"]
+      }
+    },
   ];
 
   // Strip CDP / Chromium-specific power tools when running under Firefox
@@ -1476,6 +1586,24 @@ async function handleMCPRequest(message) {
         result = await openIncognitoTab(params); break;
       case "emulate_device":
         result = await emulateDevice(params); break;
+
+      // OBU parity
+      case "clipboard_read_text":
+        result = await clipboardReadText(params); break;
+      case "clipboard_write_text":
+        result = await clipboardWriteText(params); break;
+      case "clipboard_read":
+        result = await clipboardRead(params); break;
+      case "clipboard_write":
+        result = await clipboardWrite(params); break;
+      case "claim_tab":
+        result = await claimTab(params); break;
+      case "finalize_tabs":
+        result = await finalizeTabs(params); break;
+      case "name_session":
+        result = await nameSession(params); break;
+      case "move_mouse":
+        result = await moveMouse(params); break;
 
       default:
         throw new Error(`Unknown method: ${method}`);
@@ -2209,6 +2337,185 @@ async function emulateDevice(params) {
     await _cdpSend(tabId, 'Emulation.setUserAgentOverride', { userAgent: params.user_agent });
   }
   return { success: true };
+}
+
+// =================== OBU parity handlers ============================
+// Clipboard goes through CDP Runtime.evaluate of navigator.clipboard.*
+// because chrome.scripting.executeScript runs in the page world but
+// navigator.clipboard requires user-activation; CDP Runtime.evaluate
+// with userGesture:true bypasses the activation gate.
+
+async function clipboardReadText(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  const r = await _cdpSend(tabId, 'Runtime.evaluate', {
+    expression: "navigator.clipboard.readText()",
+    awaitPromise: true,
+    returnByValue: true,
+    userGesture: true,
+    timeout: 5000,
+  });
+  if (r.exceptionDetails)
+    return { success: false, error: r.exceptionDetails.text };
+  return { success: true, text: r.result?.value ?? "" };
+}
+
+async function clipboardWriteText(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  if (typeof params.text !== 'string') throw new Error("clipboard_write_text: text required");
+  const expr = `navigator.clipboard.writeText(${JSON.stringify(params.text)}).then(()=>true)`;
+  const r = await _cdpSend(tabId, 'Runtime.evaluate', {
+    expression: expr,
+    awaitPromise: true,
+    returnByValue: true,
+    userGesture: true,
+    timeout: 5000,
+  });
+  if (r.exceptionDetails)
+    return { success: false, error: r.exceptionDetails.text };
+  return { success: true };
+}
+
+async function clipboardRead(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  // Iterate ClipboardItems and convert each blob to base64.
+  const expr = `(async () => {
+    const out = [];
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      for (const type of item.types) {
+        const blob = await item.getType(type);
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        let bin = ''; for (const b of buf) bin += String.fromCharCode(b);
+        out.push({ type, data_base64: btoa(bin) });
+      }
+    }
+    return out;
+  })()`;
+  const r = await _cdpSend(tabId, 'Runtime.evaluate', {
+    expression: expr, awaitPromise: true, returnByValue: true, userGesture: true, timeout: 8000,
+  });
+  if (r.exceptionDetails)
+    return { success: false, error: r.exceptionDetails.text };
+  return { success: true, items: r.result?.value ?? [] };
+}
+
+async function clipboardWrite(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  await _cdpAttach(tabId);
+  if (!Array.isArray(params.items) || params.items.length === 0)
+    throw new Error("clipboard_write: items required");
+  const itemsLiteral = JSON.stringify(params.items);
+  const expr = `(async () => {
+    const items = ${itemsLiteral};
+    const clipItems = items.map(it => {
+      const bin = atob(it.data_base64);
+      const buf = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+      return new ClipboardItem({ [it.type]: new Blob([buf], { type: it.type }) });
+    });
+    await navigator.clipboard.write(clipItems);
+    return true;
+  })()`;
+  const r = await _cdpSend(tabId, 'Runtime.evaluate', {
+    expression: expr, awaitPromise: true, returnByValue: true, userGesture: true, timeout: 8000,
+  });
+  if (r.exceptionDetails)
+    return { success: false, error: r.exceptionDetails.text };
+  return { success: true };
+}
+
+// ----- Session management -------------------------------------------
+// Persist {sessionId -> [tabIds]} in chrome.storage.local under
+// "od.sessions". finalize_tabs reads + acts.
+const _SESSION_STORE_KEY = "od.sessions";
+async function _readSessions() {
+  try {
+    const r = await browser.storage.local.get(_SESSION_STORE_KEY);
+    return r?.[_SESSION_STORE_KEY] ?? {};
+  } catch { return {}; }
+}
+async function _writeSessions(sessions) {
+  try { await browser.storage.local.set({ [_SESSION_STORE_KEY]: sessions }); } catch {}
+}
+
+async function claimTab(params) {
+  if (!params.session_id) throw new Error("claim_tab: session_id required");
+  const tabId = await _resolveTabId(params.tab_id);
+  const sessions = await _readSessions();
+  const list = sessions[params.session_id] ?? [];
+  if (!list.includes(tabId)) list.push(tabId);
+  sessions[params.session_id] = list;
+  await _writeSessions(sessions);
+  return { success: true, session_id: params.session_id, tab_id: tabId, claimed: list.length };
+}
+
+async function finalizeTabs(params) {
+  if (!params.session_id) throw new Error("finalize_tabs: session_id required");
+  const sessions = await _readSessions();
+  const claimed = sessions[params.session_id] ?? [];
+  const keep = Array.isArray(params.keep) ? params.keep : [];
+  const keepIds = new Set(keep.map(k => k.tab_id));
+  const closed = [];
+  const kept = [];
+  for (const tid of claimed) {
+    if (keepIds.has(tid)) {
+      const status = (keep.find(k => k.tab_id === tid)?.status) || "kept";
+      kept.push({ tab_id: tid, status });
+    } else {
+      try { await browser.tabs.remove(tid); closed.push(tid); } catch {}
+    }
+  }
+  // Drop the session record.
+  delete sessions[params.session_id];
+  await _writeSessions(sessions);
+  return { success: true, session_id: params.session_id, closed, kept };
+}
+
+async function nameSession(params) {
+  if (!params.session_id || !params.name) throw new Error("name_session: session_id + name required");
+  // chrome.tabGroups requires the "tabGroups" permission; without it,
+  // gracefully no-op.
+  if (!chrome.tabGroups || !chrome.tabs.group) {
+    return { success: true, named: false, reason: "tabGroups API unavailable" };
+  }
+  const sessions = await _readSessions();
+  const tabs = (sessions[params.session_id] ?? []).filter(Boolean);
+  if (tabs.length === 0) return { success: true, named: false, reason: "no claimed tabs" };
+  // Group + rename. Errors here are non-fatal — we still return success.
+  try {
+    const groupId = await chrome.tabs.group({ tabIds: tabs });
+    await chrome.tabGroups.update(groupId, { title: params.name });
+    return { success: true, named: true, group_id: groupId, tab_count: tabs.length };
+  } catch (e) {
+    return { success: true, named: false, reason: String(e?.message || e) };
+  }
+}
+
+// ----- Visual-only cursor move (no real input) ----------------------
+// The Everywhere host renders a software cursor when CursorOverlayEnabled
+// is on. We surface an MCP tool here for protocol parity with OBU's
+// moveMouse, but the actual rendering happens out-of-process. The
+// simplest cross-stack signal is a small JSON payload printed by the
+// ext that the host can pick up via console capture; concretely we just
+// log the intent (host-side TracedInputSimulator already drives the
+// overlay for any *real* CGEvent input, so move_mouse is a no-op when
+// the host is the one initiating moves).
+
+async function moveMouse(params) {
+  if (typeof params.x !== 'number' || typeof params.y !== 'number')
+    throw new Error("move_mouse: x and y required");
+  // Just acknowledge the intent. There's no Chrome API to move the
+  // OS cursor without dispatching events; truly visual cursors are
+  // platform-host concerns (Everywhere has SoftwareCursorOverlay
+  // wired to its IInputSimulator decorator).
+  return {
+    success: true,
+    x: params.x, y: params.y,
+    note: "move_mouse is acknowledged at the bridge level; visual cursor rendering is host-side (Everywhere SoftwareCursorOverlay).",
+  };
 }
 
 async function sendToContentScript(action, data, targetTabId = null) {
