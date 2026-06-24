@@ -42,8 +42,15 @@ class ConnectionManager {
 
   async connect() {
     if (this.isServiceWorker) {
-      // Chrome MV3: Create fresh connection for each operation
-      console.log('🔧 Chrome MV3: Creating temporary connection');
+      // Chrome MV3: reuse if already open, otherwise create.
+      // Opening a fresh socket on every message races the inbound
+      // request — the new socket is still CONNECTING when the result
+      // callback runs, so connectionManager.send() drops the reply.
+      if (this.mcpSocket && this.mcpSocket.readyState === WebSocket.OPEN) {
+        console.log('🔧 Chrome MV3: reusing open connection');
+        return;
+      }
+      console.log('🔧 Chrome MV3: opening connection');
       await this.createConnection();
     } else {
       // Firefox MV2: Maintain persistent connection
@@ -66,41 +73,56 @@ class ConnectionManager {
 
       console.log('🔗 Connecting to MCP server at', MCP_SERVER_URL);
       this.mcpSocket = new WebSocket(MCP_SERVER_URL);
-      
+      const socket = this.mcpSocket;
+
+      // Block until the socket is actually OPEN (or errors). Without
+      // this, createConnection resolves while readyState is still
+      // CONNECTING, and the very next connectionManager.send() drops
+      // the message because it checks readyState === OPEN.
+      const opened = new Promise((resolve, reject) => {
+        const onOpenOnce = () => { socket.removeEventListener('error', onErrOnce); resolve(); };
+        const onErrOnce = (e) => { socket.removeEventListener('open', onOpenOnce); reject(e); };
+        socket.addEventListener('open', onOpenOnce, { once: true });
+        socket.addEventListener('error', onErrOnce, { once: true });
+      });
+
       this.mcpSocket.onopen = () => {
         console.log('✅ Connected to MCP server');
         this.clearReconnectInterval();
         this.reconnectAttempts = 0; // Reset attempts on successful connection
-        
+
         const tools = getAvailableTools();
         console.log(`🔧 Registering ${tools.length} tools:`, tools.map(t => t.name));
-        
+
         // Register available browser functions
         this.mcpSocket.send(JSON.stringify({
           type: 'register',
           tools: tools
         }));
-        
-        // Setup heartbeat for persistent connections
-        if (!this.isServiceWorker) {
-          this.setupHeartbeat();
-        }
+
+        // Heartbeat in both modes. In Chrome MV3 the websocket frame
+        // activity itself resets the service-worker idle timer.
+        this.setupHeartbeat();
       };
-      
+
       this.mcpSocket.onmessage = async (event) => {
         const message = JSON.parse(event.data);
+        // Server-driven keep-alive: ignore ping frames at the handler
+        // level. The websocket activity alone is what keeps the MV3
+        // service worker idle timer reset (Chrome 124+ behavior).
+        if (message && message.type === 'ping') return;
         await handleMCPRequest(message);
       };
-      
+
       this.mcpSocket.onclose = (event) => {
         console.log(`❌ Disconnected from MCP server (code: ${event.code}, reason: ${event.reason})`);
         this.clearHeartbeat(); // Clear heartbeat on disconnect
         this.reconnectAttempts++;
-        
+
         // Check if this was a normal closure or abnormal
         if (event.code !== 1000 && event.code !== 1001) {
           console.log('🔄 Abnormal WebSocket closure, will attempt reconnection');
-          
+
           if (!this.isServiceWorker) {
             // Firefox: Attempt to reconnect
             this.scheduleReconnect();
@@ -110,12 +132,15 @@ class ConnectionManager {
           console.log('🔄 Normal WebSocket closure');
         }
       };
-      
+
       this.mcpSocket.onerror = (error) => {
         console.log('⚠️ MCP WebSocket error:', error);
         this.reconnectAttempts++;
       };
-      
+
+      // Block resolution until the handshake actually completes.
+      await opened;
+
     } catch (error) {
       console.error('Connection failed:', error);
       if (!this.isServiceWorker) {
@@ -148,7 +173,9 @@ class ConnectionManager {
   }
 
   setupHeartbeat() {
-    // Only maintain heartbeat in persistent background pages
+    // Client-driven heartbeat. Originally only enabled in Firefox MV2;
+    // now also enabled in Chrome MV3 because websocket frame activity
+    // resets the MV3 service-worker idle timer (Chrome 124+).
     this.clearHeartbeat();
     this.heartbeatInterval = setInterval(() => {
       if (this.mcpSocket?.readyState === WebSocket.OPEN) {
@@ -157,7 +184,7 @@ class ConnectionManager {
         console.log('🔄 WebSocket closed, attempting reconnection...');
         this.connect();
       }
-    }, 15000); // More frequent heartbeat for better reliability
+    }, 15000);
   }
 
   clearHeartbeat() {
@@ -976,13 +1003,99 @@ function getAvailableTools() {
             description: "Effect duration in seconds", 
             default: 10 
           },
-          remember: { 
-            type: "boolean", 
-            description: "Remember this style for this website", 
-            default: false 
+          remember: {
+            type: "boolean",
+            description: "Remember this style for this website",
+            default: false
           }
         },
         required: ["mode"]
+      }
+    },
+    // ---- Power tools (Everywhere fork) -------------------------------
+    // Inspired by open-browser-use executeCdp + OpenChromeCLI evaluateScript:
+    // give the host a low-level escape hatch when the heuristic
+    // page_analyze can't find the element it needs.
+    {
+      name: "evaluate_js",
+      description: "🛠️ POWER TOOL: Run arbitrary JavaScript in the page's MAIN world via chrome.scripting.executeScript. Returns the function's return value (JSON-serializable). Use when page_analyze can't see the element you need, or you need to interact with shadow DOM, custom web components, or hidden controls.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number", description: "Target tab id. If omitted, uses active tab." },
+          expression: { type: "string", description: "JS expression OR full function body. The code is wrapped in `() => { <expression> }`, so a trailing `return` is needed for non-expression bodies." },
+          args: { type: "array", description: "Arguments forwarded as the function's parameters (JSON-serializable).", default: [] },
+          world: { type: "string", enum: ["MAIN", "ISOLATED"], default: "MAIN", description: "Execution world. MAIN sees page globals; ISOLATED is the content-script sandbox." },
+          timeout_ms: { type: "number", default: 5000, description: "Hard timeout for the script." }
+        },
+        required: ["expression"]
+      }
+    },
+    {
+      name: "dom_query",
+      description: "🎯 POWER TOOL: Find ONE element by CSS selector (with optional shadow-DOM piercing) and perform an action: click, fill, focus, scroll_into_view, get_text, get_attr, get_html, exists. Bypasses page_analyze's heuristics entirely.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number", description: "Target tab id. Defaults to active tab." },
+          selector: { type: "string", description: "CSS selector. Use ' >>> ' to pierce open shadow roots (e.g. 'my-host >>> button.submit')." },
+          action: { type: "string", enum: ["click","fill","focus","scroll_into_view","get_text","get_attr","get_html","exists","submit_form"], description: "What to do once the element is located." },
+          value: { type: "string", description: "Text for action=fill, or attribute name for action=get_attr." },
+          nth: { type: "number", default: 0, description: "Index when the selector matches multiple elements (0=first)." }
+        },
+        required: ["selector", "action"]
+      }
+    },
+    {
+      name: "dom_query_all",
+      description: "🔎 POWER TOOL: Enumerate every element matching a CSS selector (shadow-piercing). For each match return tagName, text (trimmed), role, id, classes, name, type, value, href, aria-label, visible, rect. Use this when page_analyze's heuristic 15-element cap is hiding the button you need.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number", description: "Target tab id." },
+          selector: { type: "string", description: "CSS selector. Supports ' >>> ' shadow piercing.", default: "button, [role=button], input, textarea, select, a[href]" },
+          limit: { type: "number", default: 100, description: "Cap on results." },
+          visible_only: { type: "boolean", default: true, description: "Filter to elements with non-zero bounding box." }
+        }
+      }
+    },
+    {
+      name: "wait_for_selector",
+      description: "⏳ POWER TOOL: Poll until a CSS selector matches (or timeout). Useful right after navigation or after a click that triggers async DOM updates.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          selector: { type: "string", description: "CSS selector. Supports ' >>> '." },
+          timeout_ms: { type: "number", default: 8000 },
+          visible: { type: "boolean", default: true, description: "Require non-zero bounding box." }
+        },
+        required: ["selector"]
+      }
+    },
+    {
+      name: "dispatch_keys",
+      description: "⌨️ POWER TOOL: Dispatch real KeyboardEvents (keydown + keypress + keyup) on a CSS-selected element (or document). Use to send Enter / Cmd+Enter / Tab / Escape / arrows / typed text to forms that don't react to .click() or to fill+blur.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          selector: { type: "string", description: "Optional CSS selector for target. Defaults to document.activeElement, then document.body." },
+          keys: { type: "array", items: { type: "string" }, description: "Sequence of keys, e.g. [\"Enter\"], [\"Tab\",\"Tab\",\"Enter\"], [\"Meta+Enter\"]." }
+        },
+        required: ["keys"]
+      }
+    },
+    {
+      name: "screenshot",
+      description: "📸 POWER TOOL: Capture the visible area of a tab as PNG (base64). Useful for verifying clicks / form-submit results visually.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number", description: "Tab to capture. Defaults to active tab in current window." },
+          format: { type: "string", enum: ["png","jpeg"], default: "png" },
+          quality: { type: "number", default: 90, description: "JPEG quality 0-100 (ignored for PNG)." }
+        }
       }
     },
   ];
@@ -1065,6 +1178,27 @@ async function handleMCPRequest(message) {
       case "page_style":
         result = await sendToContentScript('page_style', params, params.tab_id);
         break;
+
+      // ---- Power tools (Everywhere fork) -----------------------------
+      case "evaluate_js":
+        result = await evaluateJs(params);
+        break;
+      case "dom_query":
+        result = await domQuery(params);
+        break;
+      case "dom_query_all":
+        result = await domQueryAll(params);
+        break;
+      case "wait_for_selector":
+        result = await waitForSelector(params);
+        break;
+      case "dispatch_keys":
+        result = await dispatchKeys(params);
+        break;
+      case "screenshot":
+        result = await captureScreenshot(params);
+        break;
+
       default:
         throw new Error(`Unknown method: ${method}`);
     }
@@ -1087,6 +1221,311 @@ async function handleMCPRequest(message) {
 }
 
 // Enhanced content script communication with background tab support
+// ---- Power tools (Everywhere fork) ---------------------------------------
+// These four handlers give the MCP host a low-level DOM escape hatch via
+// chrome.scripting.executeScript so it isn't bound by page_analyze's
+// heuristic 15-element cap or its blindness to icon-only / custom-element
+// buttons.
+
+async function _resolveTabId(tabId) {
+  if (tabId) {
+    try { await browser.tabs.get(tabId); return tabId; }
+    catch { throw new Error(`Tab ${tabId} not found or inaccessible`); }
+  }
+  const [active] = await browser.tabs.query({ active: true, currentWindow: true });
+  if (!active) throw new Error("No active tab");
+  return active.id;
+}
+
+async function _exec(tabId, world, func, args = []) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world,
+    func,
+    args,
+  });
+  // executeScript returns one entry per frame; take main frame (frameId 0).
+  const main = results.find(r => r.frameId === 0) || results[0];
+  if (!main) throw new Error("executeScript returned no frames");
+  return main.result;
+}
+
+// The selector resolver used inside MAIN-world execution. Inlined into
+// each func via .toString() because MAIN-world script can't import.
+function _selectorResolverSource() {
+  return `
+function _odResolve(sel, nth = 0, allMatches = false) {
+  const parts = sel.split(' >>> ').map(s => s.trim()).filter(Boolean);
+  if (parts.length === 0) return allMatches ? [] : null;
+  // walk shadow boundaries: each part queried against previous match's
+  // shadowRoot (or document for the first one).
+  let roots = [document];
+  for (let i = 0; i < parts.length; i++) {
+    const last = i === parts.length - 1;
+    const next = [];
+    for (const root of roots) {
+      const found = root.querySelectorAll(parts[i]);
+      for (const el of found) {
+        if (last) next.push(el);
+        else if (el.shadowRoot) next.push(el.shadowRoot);
+      }
+    }
+    roots = next;
+    if (!last && roots.length === 0) break;
+  }
+  if (allMatches) return roots;
+  return roots[nth] || null;
+}
+function _odVisible(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return false;
+  const cs = getComputedStyle(el);
+  return cs.display !== 'none' && cs.visibility !== 'hidden' && cs.opacity !== '0';
+}
+function _odDescribe(el) {
+  const r = el.getBoundingClientRect ? el.getBoundingClientRect() : { x:0,y:0,width:0,height:0 };
+  return {
+    tag: el.tagName ? el.tagName.toLowerCase() : null,
+    id: el.id || null,
+    classes: el.className && typeof el.className === 'string' ? el.className.split(/\\s+/).filter(Boolean) : [],
+    text: (el.innerText || el.textContent || '').trim().slice(0, 120),
+    role: el.getAttribute ? el.getAttribute('role') : null,
+    name: el.getAttribute ? (el.getAttribute('name') || el.getAttribute('aria-label')) : null,
+    type: el.type || null,
+    value: el.value !== undefined ? String(el.value).slice(0, 200) : null,
+    href: el.href || null,
+    visible: _odVisible(el),
+    rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+  };
+}
+`;
+}
+
+async function evaluateJs(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  const expression = params.expression;
+  if (!expression || typeof expression !== 'string')
+    throw new Error("evaluate_js: expression is required");
+  const world = params.world === 'ISOLATED' ? 'ISOLATED' : 'MAIN';
+  const args = Array.isArray(params.args) ? params.args : [];
+  const timeoutMs = Math.max(100, Math.min(60000, params.timeout_ms || 5000));
+
+  // Wrap user expression in an async function so they can use await.
+  // Inject a Promise.race timeout so a runaway script can't hang the
+  // service worker handling thread.
+  const wrapped = new Function(
+    "__args", "__timeout",
+    `return Promise.race([
+       (async function(...args){ ${expression} }).apply(null, __args),
+       new Promise((_, rej) => setTimeout(() => rej(new Error("evaluate_js: timeout after " + __timeout + "ms")), __timeout))
+     ]);`
+  );
+
+  const result = await _exec(tabId, world, wrapped, [args, timeoutMs]);
+  return { success: true, result: result === undefined ? null : result };
+}
+
+async function domQuery(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  const selector = params.selector;
+  const action = params.action;
+  const value = params.value ?? null;
+  const nth = params.nth || 0;
+  if (!selector) throw new Error("dom_query: selector required");
+  if (!action) throw new Error("dom_query: action required");
+
+  const src = _selectorResolverSource();
+  // Build a function that, in MAIN world, resolves selector then runs the action.
+  const func = new Function("selector", "action", "value", "nth", `
+    ${src}
+    const el = _odResolve(selector, nth);
+    if (!el) return { found: false };
+    const info = _odDescribe(el);
+    let outcome = null;
+    switch (action) {
+      case 'click':
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        if (typeof el.click === 'function') el.click();
+        else el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        outcome = 'clicked';
+        break;
+      case 'fill': {
+        el.focus();
+        if ('value' in el) {
+          const nativeSetter = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value');
+          if (nativeSetter && nativeSetter.set) nativeSetter.set.call(el, value);
+          else el.value = value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        } else if (el.isContentEditable) {
+          el.textContent = value;
+          el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        } else {
+          throw new Error('dom_query fill: element is not fillable');
+        }
+        outcome = 'filled';
+        break;
+      }
+      case 'focus':
+        el.focus();
+        outcome = 'focused';
+        break;
+      case 'scroll_into_view':
+        el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+        outcome = 'scrolled';
+        break;
+      case 'get_text':
+        outcome = (el.innerText || el.textContent || '').trim();
+        break;
+      case 'get_attr':
+        outcome = el.getAttribute ? el.getAttribute(value) : null;
+        break;
+      case 'get_html':
+        outcome = el.outerHTML;
+        break;
+      case 'exists':
+        outcome = true;
+        break;
+      case 'submit_form': {
+        let form = el.tagName === 'FORM' ? el : el.closest('form');
+        if (!form) throw new Error('submit_form: no enclosing <form>');
+        if (form.requestSubmit) form.requestSubmit(); else form.submit();
+        outcome = 'submitted';
+        break;
+      }
+      default:
+        throw new Error('dom_query: unknown action ' + action);
+    }
+    return { found: true, element: info, outcome };
+  `);
+  const result = await _exec(tabId, 'MAIN', func, [selector, action, value, nth]);
+  return { success: true, ...result };
+}
+
+async function domQueryAll(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  const selector = params.selector || 'button, [role=button], input, textarea, select, a[href]';
+  const limit = Math.max(1, Math.min(2000, params.limit || 100));
+  const visibleOnly = params.visible_only !== false;
+
+  const src = _selectorResolverSource();
+  const func = new Function("selector", "limit", "visibleOnly", `
+    ${src}
+    const all = _odResolve(selector, 0, true);
+    const out = [];
+    for (const el of all) {
+      if (visibleOnly && !_odVisible(el)) continue;
+      out.push(_odDescribe(el));
+      if (out.length >= limit) break;
+    }
+    return { count: out.length, total_matches: all.length, elements: out };
+  `);
+  const result = await _exec(tabId, 'MAIN', func, [selector, limit, visibleOnly]);
+  return { success: true, ...result };
+}
+
+async function waitForSelector(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  const selector = params.selector;
+  const timeoutMs = Math.max(100, Math.min(60000, params.timeout_ms || 8000));
+  const requireVisible = params.visible !== false;
+  if (!selector) throw new Error("wait_for_selector: selector required");
+
+  const src = _selectorResolverSource();
+  const func = new Function("selector", "timeoutMs", "requireVisible", `
+    ${src}
+    return new Promise((resolve) => {
+      const start = Date.now();
+      function tick() {
+        const el = _odResolve(selector);
+        if (el && (!requireVisible || _odVisible(el))) {
+          resolve({ matched: true, elapsed_ms: Date.now() - start, element: _odDescribe(el) });
+          return;
+        }
+        if (Date.now() - start >= timeoutMs) {
+          resolve({ matched: false, elapsed_ms: Date.now() - start });
+          return;
+        }
+        requestAnimationFrame(tick);
+      }
+      tick();
+    });
+  `);
+  const result = await _exec(tabId, 'MAIN', func, [selector, timeoutMs, requireVisible]);
+  return { success: true, ...result };
+}
+
+async function dispatchKeys(params) {
+  const tabId = await _resolveTabId(params.tab_id);
+  const keys = params.keys;
+  if (!Array.isArray(keys) || keys.length === 0)
+    throw new Error("dispatch_keys: keys array required");
+  const selector = params.selector || null;
+  const src = _selectorResolverSource();
+
+  const func = new Function("selector", "keys", `
+    ${src}
+    function _parseKey(spec) {
+      const parts = spec.split('+').map(s => s.trim()).filter(Boolean);
+      const mods = { ctrl:false, meta:false, alt:false, shift:false };
+      let key = parts.pop();
+      for (const p of parts) {
+        const low = p.toLowerCase();
+        if (low === 'ctrl' || low === 'control') mods.ctrl = true;
+        else if (low === 'meta' || low === 'cmd' || low === 'command') mods.meta = true;
+        else if (low === 'alt' || low === 'option') mods.alt = true;
+        else if (low === 'shift') mods.shift = true;
+      }
+      return { key, mods };
+    }
+    let target = selector ? _odResolve(selector) : (document.activeElement || document.body);
+    if (!target) return { dispatched: false, reason: 'no target' };
+    target.focus && target.focus();
+    const dispatched = [];
+    for (const spec of keys) {
+      const { key, mods } = _parseKey(spec);
+      const init = {
+        key, code: key.length === 1 ? 'Key' + key.toUpperCase() : key,
+        bubbles: true, cancelable: true, composed: true,
+        ctrlKey: mods.ctrl, metaKey: mods.meta, altKey: mods.alt, shiftKey: mods.shift,
+      };
+      target.dispatchEvent(new KeyboardEvent('keydown', init));
+      if (key.length === 1) target.dispatchEvent(new KeyboardEvent('keypress', init));
+      target.dispatchEvent(new KeyboardEvent('keyup', init));
+      dispatched.push(spec);
+    }
+    return { dispatched: true, keys: dispatched, target_tag: target.tagName ? target.tagName.toLowerCase() : null };
+  `);
+  const result = await _exec(tabId, 'MAIN', func, [selector, keys]);
+  return { success: true, ...result };
+}
+
+async function captureScreenshot(params) {
+  const tabId = params.tab_id ? await _resolveTabId(params.tab_id) : null;
+  const format = params.format === 'jpeg' ? 'jpeg' : 'png';
+  const quality = format === 'jpeg' ? (params.quality || 90) : undefined;
+  let windowId;
+  if (tabId) {
+    const tab = await browser.tabs.get(tabId);
+    windowId = tab.windowId;
+  } else {
+    const [active] = await browser.tabs.query({ active: true, currentWindow: true });
+    windowId = active && active.windowId;
+  }
+  const opts = quality !== undefined ? { format, quality } : { format };
+  const dataUrl = await new Promise((resolve, reject) => {
+    chrome.tabs.captureVisibleTab(windowId, opts, (url) => {
+      if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+      else resolve(url);
+    });
+  });
+  // Strip the data: prefix and just return base64 + mime.
+  const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+  if (!m) return { success: false, error: "captureVisibleTab returned unexpected data URL" };
+  return { success: true, mime: m[1], base64: m[2], length: m[2].length };
+}
+
 async function sendToContentScript(action, data, targetTabId = null) {
   let targetTab;
   
