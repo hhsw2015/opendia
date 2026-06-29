@@ -364,6 +364,146 @@ class BrowserAutomation {
             result = { ok: true, ref: data.ref };
           }
           break;
+        case "dblclick":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "dblclick");
+            el.scrollIntoView({ block: "center" });
+            const rect = el.getBoundingClientRect();
+            const opts = { bubbles: true, cancelable: true,
+              clientX: rect.left + rect.width / 2,
+              clientY: rect.top + rect.height / 2,
+              button: 0, detail: 2 };
+            el.dispatchEvent(new MouseEvent("mousedown", opts));
+            el.dispatchEvent(new MouseEvent("mouseup", opts));
+            el.dispatchEvent(new MouseEvent("click", opts));
+            el.dispatchEvent(new MouseEvent("mousedown", opts));
+            el.dispatchEvent(new MouseEvent("mouseup", opts));
+            el.dispatchEvent(new MouseEvent("click", opts));
+            el.dispatchEvent(new MouseEvent("dblclick", opts));
+            result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "scroll_into_view":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "scroll_into_view");
+            el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+            result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "select":
+          // SPEC ab agent_browser_select — set <select>.value to one of the
+          // listed values, fire change.
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "select");
+            if (!el || el.tagName !== "SELECT") {
+              throw new Error("select: " + data.ref + " is not a <select>");
+            }
+            const values = Array.isArray(data.values) ? data.values : (data.value != null ? [data.value] : []);
+            if (!values.length) throw new Error("select: value/values required");
+            const before = el.value;
+            // Multi-select: pick all listed; single-select: first match.
+            for (const opt of el.options) opt.selected = false;
+            for (const opt of el.options) {
+              if (values.includes(opt.value) || values.includes(opt.label)) {
+                opt.selected = true;
+                if (!el.multiple) break;
+              }
+            }
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            result = { ok: true, ref: data.ref, before, after: el.value };
+          }
+          break;
+        case "drag":
+          {
+            const fromRef = data && data.from;
+            const toRef = data && data.to;
+            const a = globalThis.OpenDiaSnapshot.resolveRef(fromRef, globalThis.__openDiaSnapshotRefs, "drag");
+            const b = globalThis.OpenDiaSnapshot.resolveRef(toRef, globalThis.__openDiaSnapshotRefs, "drag");
+            const ar = a.getBoundingClientRect();
+            const br = b.getBoundingClientRect();
+            const ax = ar.left + ar.width / 2, ay = ar.top + ar.height / 2;
+            const bx = br.left + br.width / 2, by = br.top + br.height / 2;
+            const dt = new DataTransfer();
+            const fire = (target, type, x, y) => target.dispatchEvent(new DragEvent(type, {
+              bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer: dt,
+            }));
+            fire(a, "dragstart", ax, ay);
+            fire(b, "dragenter", bx, by);
+            fire(b, "dragover", bx, by);
+            fire(b, "drop", bx, by);
+            fire(a, "dragend", bx, by);
+            result = { ok: true, from: fromRef, to: toRef };
+          }
+          break;
+        case "get_text":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_text");
+            result = { ok: true, ref: data.ref, text: (el.innerText || "").trim() };
+          }
+          break;
+        case "get_html":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_html");
+            // SPEC §2.3 anti-temptation: this is the raw form. Caller
+            // should prefer snapshot/get_text. Cap returned bytes.
+            const max = (data && data.max_bytes) || 8000;
+            const html = el.outerHTML || "";
+            result = {
+              ok: true,
+              ref: data.ref,
+              html: html.length > max ? html.slice(0, max) + "[…truncated]" : html,
+              bytes: html.length,
+              truncated: html.length > max,
+            };
+          }
+          break;
+        case "get_value":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_value");
+            const v = "value" in el ? el.value : (el.textContent || "");
+            result = { ok: true, ref: data.ref, value: v };
+          }
+          break;
+        case "get_attr":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_attr");
+            const name = data && data.name;
+            if (!name) throw new Error("get_attr: name required");
+            result = { ok: true, ref: data.ref, name, value: el.getAttribute(name) };
+          }
+          break;
+        case "is_visible":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "is_visible");
+            const r = el.getBoundingClientRect();
+            const cs = window.getComputedStyle(el);
+            const visible = r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none" && cs.opacity !== "0";
+            result = { ok: true, ref: data.ref, visible };
+          }
+          break;
+        case "is_enabled":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "is_enabled");
+            result = { ok: true, ref: data.ref, enabled: !el.disabled };
+          }
+          break;
+        case "is_checked":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "is_checked");
+            result = { ok: true, ref: data.ref, checked: !!el.checked };
+          }
+          break;
         case "hover":
           {
             const el = globalThis.OpenDiaSnapshot.resolveRef(

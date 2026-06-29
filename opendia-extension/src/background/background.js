@@ -556,6 +556,61 @@ function getAvailableTools() {
       },
     },
     {
+      name: "dblclick",
+      description: "🖱️🖱️ Double-click an element by @refN. Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "scroll_into_view",
+      description: "🪟 Scroll an element by @refN into the viewport center.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "select",
+      description: "🔽 Select option(s) on a <select> by @refN. value or values[] (multi-select).",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, value: { type: "string" }, values: { type: "array", items: { type: "string" } }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "drag",
+      description: "🤚 Drag from @ref to @ref (HTML5 drag events).",
+      inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" }, tab_id: { type: "number" } }, required: ["from", "to"] },
+    },
+    {
+      name: "get_text",
+      description: "📝 Read innerText of @refN. Cheap; prefer this over get_html for content extraction.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "get_html",
+      description: "📄 Read outerHTML of @refN. Typically large; only when get_text loses needed detail. Capped at 8KB by default.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, max_bytes: { type: "number", default: 8000 }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "get_value",
+      description: "🧮 Read input/textarea/contenteditable value of @refN.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "get_attr",
+      description: "🏷️ Read a DOM attribute of @refN.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, name: { type: "string" }, tab_id: { type: "number" } }, required: ["ref", "name"] },
+    },
+    {
+      name: "is_visible",
+      description: "👁️ Returns whether @refN is visible (rect>0 + visibility/display/opacity).",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "is_enabled",
+      description: "✅ Returns whether @refN is enabled (not disabled).",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "is_checked",
+      description: "☑️ Returns whether @refN is a checked checkbox/radio.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
       name: "hover",
       description: "👆 Hover over an element by @refN; fires mouseover/mouseenter/mousemove. Pair with snapshot.",
       inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
@@ -1709,6 +1764,19 @@ async function handleMCPRequest(message) {
         break;
       case "tab_new":
         result = await createTab({ url: params.url, active: params.active });
+        break;
+      case "dblclick":
+      case "scroll_into_view":
+      case "select":
+      case "drag":
+      case "get_text":
+      case "get_html":
+      case "get_value":
+      case "get_attr":
+      case "is_visible":
+      case "is_enabled":
+      case "is_checked":
+        result = await sendToContentScript(method, params, params.tab_id);
         break;
       case "hover":
         result = await sendToContentScript('hover', params, params.tab_id);
