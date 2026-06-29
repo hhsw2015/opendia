@@ -3911,6 +3911,12 @@ async function cdpSetHeaders(params) {
 async function cdpSetCredentials(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("set_credentials: no active tab");
+  if (typeof params.username !== "string" || typeof params.password !== "string") {
+    throw new Error("set_credentials: username and password required (non-null strings)");
+  }
+  if (params.username.includes(":")) {
+    throw new Error("set_credentials: username may not contain ':' (Basic auth separator)");
+  }
   const auth = "Basic " + btoa(params.username + ":" + params.password);
   await _cdpSend(id, "Network.enable", {});
   await _cdpSend(id, "Network.setExtraHTTPHeaders", { headers: { Authorization: auth } });
@@ -3936,6 +3942,13 @@ const __routeState = new Map();
 async function cdpRouteInstall(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("network_route: no active tab");
+  if (typeof params.pattern !== "string" || params.pattern.length > 1024) {
+    throw new Error("network_route: pattern required (string ≤ 1024 chars)");
+  }
+  const respBytes = ((params.response && params.response.body) || "").length;
+  if (respBytes > 1024 * 1024) {
+    throw new Error("network_route: response.body capped at 1 MiB to bound service-worker memory");
+  }
   await _cdpSend(id, "Fetch.enable", {
     patterns: [{ urlPattern: params.pattern, requestStage: "Request" }],
   });
@@ -4064,8 +4077,10 @@ async function pageEval(params) {
     world: "MAIN",
     func: (src) => {
       try {
+        // Wrap as an IIFE so multi-statement scripts work; the script
+        // must `return` its result.
         // eslint-disable-next-line no-new-func
-        return { ok: true, value: new Function("return (" + src + ");")() };
+        return { ok: true, value: new Function("return (function(){ " + src + " })();")() };
       } catch (e) {
         return { ok: false, error: String(e) };
       }

@@ -172,17 +172,28 @@ function compactSnapshot(root, opts) {
   return out;
 }
 
-// SPEC: shared @refN → live element resolver consumed by click/fill/type.
-// Pulled out so node --test can exercise the parsing+lookup edge cases.
-function resolveRef(refStr, table, opName) {
+// SPEC: shared @refN / @findN → live element resolver consumed by
+// click/fill/type. @refN comes from a snapshot/diff_snapshot call;
+// @findN comes from find/find_by_*. They live in separate tables so a
+// later snapshot does not invalidate prior find handles.
+function resolveRef(refStr, snapshotTable, opName, findTable) {
   const op = opName || "ref";
-  if (!refStr) throw new Error(op + ": ref required (e.g. \"@ref3\")");
-  const m = String(refStr).match(/^@ref(\d+)$/);
-  if (!m) throw new Error(op + ": invalid ref \"" + refStr + "\"");
-  const idx = parseInt(m[1], 10);
-  const el = (table || [])[idx];
-  if (!el) throw new Error(op + ": " + refStr + " not in current snapshot (call snapshot first)");
-  return el;
+  if (!refStr) throw new Error(op + ": ref required (e.g. \"@ref3\" or \"@find2\")");
+  const s = String(refStr);
+  let m;
+  if ((m = s.match(/^@ref(\d+)$/))) {
+    const idx = parseInt(m[1], 10);
+    const el = (snapshotTable || [])[idx];
+    if (!el) throw new Error(op + ": " + refStr + " not in current snapshot (call snapshot first)");
+    return el;
+  }
+  if ((m = s.match(/^@find(\d+)$/))) {
+    const idx = parseInt(m[1], 10);
+    const el = (findTable || [])[idx];
+    if (!el) throw new Error(op + ": " + refStr + " not in current find table (call find/find_by_* first)");
+    return el;
+  }
+  throw new Error(op + ": invalid ref \"" + refStr + "\" (expected @refN or @findN)");
 }
 
 const api = {

@@ -10,6 +10,23 @@ if (typeof window.OpenDiaContentScriptLoaded !== 'undefined') {
 } else {
   window.OpenDiaContentScriptLoaded = true;
 
+// SPEC §4.1 — invalidate live ref tables on navigation. Without this,
+// @refN from the prior snapshot resolves to a detached DOM node after
+// SPA route changes, and click/fill/etc. silently no-op.
+function __openDiaInvalidateRefs() {
+  globalThis.__openDiaSnapshotRefs = [];
+  globalThis.__openDiaSnapshotText = "";
+  globalThis.__openDiaFindRefs = [];
+}
+window.addEventListener("pageshow", __openDiaInvalidateRefs);
+window.addEventListener("popstate", __openDiaInvalidateRefs);
+(function () {
+  const origPush = history.pushState;
+  const origReplace = history.replaceState;
+  history.pushState = function () { __openDiaInvalidateRefs(); return origPush.apply(this, arguments); };
+  history.replaceState = function () { __openDiaInvalidateRefs(); return origReplace.apply(this, arguments); };
+})();
+
 console.log("OpenDia enhanced content script loaded");
 
 // Enhanced Pattern Database with Twitter-First Priority
@@ -325,8 +342,7 @@ class BrowserAutomation {
           {
             // Build a DataTransfer over the supplied {name, mime, base64}
             // file objects and dispatch on the @refN <input type=file>.
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "upload");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "upload", globalThis.__openDiaFindRefs);
             if (!el || el.type !== "file") {
               throw new Error("upload: " + data.ref + " is not <input type=file>");
             }
@@ -398,8 +414,7 @@ class BrowserAutomation {
         case "react_inspect":
           // Map @refN DOM element back to nearest fiber; return component name + props keys.
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "react_inspect");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "react_inspect", globalThis.__openDiaFindRefs);
             const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"));
             if (!key) {
               result = { ok: false, ref: data.ref, reason: "no fiber on element — page not React" };
@@ -515,8 +530,7 @@ class BrowserAutomation {
           break;
         case "highlight":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "highlight");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "highlight", globalThis.__openDiaFindRefs);
             const color = (data && data.color) || "magenta";
             const prev = el.style.outline;
             el.style.outline = "3px solid " + color;
@@ -607,9 +621,14 @@ class BrowserAutomation {
             const expr = data && data.script;
             if (!expr) throw new Error("wait_for_function: script required");
             const timeout = (data && data.timeout) || 10000;
+            let fn;
+            try {
+              // eslint-disable-next-line no-new-func
+              fn = new Function("return (" + expr + ");");
+            } catch (e) {
+              throw new Error("wait_for_function: failed to compile script — " + e.message + " (CSP may block this on the page)");
+            }
             const start = Date.now();
-            // eslint-disable-next-line no-new-func
-            const fn = new Function("return (" + expr + ");");
             while (Date.now() - start < timeout) {
               let r;
               try { r = fn(); } catch (e) { r = false; }
@@ -681,11 +700,7 @@ class BrowserAutomation {
           // SPEC ab agent_browser_click via @refN from the last snapshot.
           {
             if (!globalThis.OpenDiaSnapshot) throw new Error("snapshot module not loaded");
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref,
-              globalThis.__openDiaSnapshotRefs,
-              "click",
-            );
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "click", globalThis.__openDiaFindRefs);
             el.scrollIntoView({ block: "center", inline: "center" });
             el.click();
             result = { ok: true, ref: data.ref, tag: el.tagName ? el.tagName.toLowerCase() : null };
@@ -694,11 +709,7 @@ class BrowserAutomation {
         case "fill":
           // SPEC ab agent_browser_fill — set value + fire input/change.
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref,
-              globalThis.__openDiaSnapshotRefs,
-              "fill",
-            );
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "fill", globalThis.__openDiaFindRefs);
             const value = data && typeof data.value === "string" ? data.value : "";
             el.scrollIntoView({ block: "center", inline: "center" });
             el.focus();
@@ -720,8 +731,7 @@ class BrowserAutomation {
           break;
         case "get_box":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_box");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_box", globalThis.__openDiaFindRefs);
             const r = el.getBoundingClientRect();
             result = { ok: true, ref: data.ref, x: r.left, y: r.top, width: r.width, height: r.height };
           }
@@ -730,8 +740,7 @@ class BrowserAutomation {
           // Computed styles. Verbose; cap to {properties:[…]} when given,
           // otherwise return the SPEC §2.3 short list.
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_styles");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_styles", globalThis.__openDiaFindRefs);
             const cs = window.getComputedStyle(el);
             const props = (data && data.properties && data.properties.length)
               ? data.properties
@@ -773,8 +782,8 @@ class BrowserAutomation {
             if (!sel) throw new Error("find: selector required");
             const match = document.querySelector(sel);
             if (!match) throw new Error("find: no element matches \"" + sel + "\"");
-            const table = globalThis.__openDiaSnapshotRefs || (globalThis.__openDiaSnapshotRefs = []);
-            const ref = "@ref" + table.length;
+            const table = globalThis.__openDiaFindRefs || (globalThis.__openDiaFindRefs = []);
+            const ref = "@find" + table.length;
             table.push(match);
             result = { ok: true, ref, selector: sel, tag: match.tagName ? match.tagName.toLowerCase() : null };
           }
@@ -905,8 +914,8 @@ class BrowserAutomation {
             if (!match) {
               throw new Error(action + ": no match for \"" + needle + "\"");
             }
-            const table = globalThis.__openDiaSnapshotRefs || (globalThis.__openDiaSnapshotRefs = []);
-            const ref = "@ref" + table.length;
+            const table = globalThis.__openDiaFindRefs || (globalThis.__openDiaFindRefs = []);
+            const ref = "@find" + table.length;
             table.push(match);
             result = {
               ok: true,
@@ -918,8 +927,7 @@ class BrowserAutomation {
           break;
         case "dblclick":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "dblclick");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "dblclick", globalThis.__openDiaFindRefs);
             el.scrollIntoView({ block: "center" });
             const rect = el.getBoundingClientRect();
             const opts = { bubbles: true, cancelable: true,
@@ -938,8 +946,7 @@ class BrowserAutomation {
           break;
         case "scroll_into_view":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "scroll_into_view");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "scroll_into_view", globalThis.__openDiaFindRefs);
             el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
             result = { ok: true, ref: data.ref };
           }
@@ -948,8 +955,7 @@ class BrowserAutomation {
           // SPEC ab agent_browser_select — set <select>.value to one of the
           // listed values, fire change.
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "select");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "select", globalThis.__openDiaFindRefs);
             if (!el || el.tagName !== "SELECT") {
               throw new Error("select: " + data.ref + " is not a <select>");
             }
@@ -973,8 +979,8 @@ class BrowserAutomation {
           {
             const fromRef = data && data.from;
             const toRef = data && data.to;
-            const a = globalThis.OpenDiaSnapshot.resolveRef(fromRef, globalThis.__openDiaSnapshotRefs, "drag");
-            const b = globalThis.OpenDiaSnapshot.resolveRef(toRef, globalThis.__openDiaSnapshotRefs, "drag");
+            const a = globalThis.OpenDiaSnapshot.resolveRef(fromRef, globalThis.__openDiaSnapshotRefs, "drag", globalThis.__openDiaFindRefs);
+            const b = globalThis.OpenDiaSnapshot.resolveRef(toRef, globalThis.__openDiaSnapshotRefs, "drag", globalThis.__openDiaFindRefs);
             const ar = a.getBoundingClientRect();
             const br = b.getBoundingClientRect();
             const ax = ar.left + ar.width / 2, ay = ar.top + ar.height / 2;
@@ -993,15 +999,13 @@ class BrowserAutomation {
           break;
         case "get_text":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_text");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_text", globalThis.__openDiaFindRefs);
             result = { ok: true, ref: data.ref, text: (el.innerText || "").trim() };
           }
           break;
         case "get_html":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_html");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_html", globalThis.__openDiaFindRefs);
             // SPEC §2.3 anti-temptation: this is the raw form. Caller
             // should prefer snapshot/get_text. Cap returned bytes.
             const max = (data && data.max_bytes) || 8000;
@@ -1017,16 +1021,14 @@ class BrowserAutomation {
           break;
         case "get_value":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_value");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_value", globalThis.__openDiaFindRefs);
             const v = "value" in el ? el.value : (el.textContent || "");
             result = { ok: true, ref: data.ref, value: v };
           }
           break;
         case "get_attr":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_attr");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_attr", globalThis.__openDiaFindRefs);
             const name = data && data.name;
             if (!name) throw new Error("get_attr: name required");
             result = { ok: true, ref: data.ref, name, value: el.getAttribute(name) };
@@ -1034,8 +1036,7 @@ class BrowserAutomation {
           break;
         case "is_visible":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "is_visible");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "is_visible", globalThis.__openDiaFindRefs);
             const r = el.getBoundingClientRect();
             const cs = window.getComputedStyle(el);
             const visible = r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none" && cs.opacity !== "0";
@@ -1044,22 +1045,19 @@ class BrowserAutomation {
           break;
         case "is_enabled":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "is_enabled");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "is_enabled", globalThis.__openDiaFindRefs);
             result = { ok: true, ref: data.ref, enabled: !el.disabled };
           }
           break;
         case "is_checked":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "is_checked");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "is_checked", globalThis.__openDiaFindRefs);
             result = { ok: true, ref: data.ref, checked: !!el.checked };
           }
           break;
         case "hover":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "hover");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "hover", globalThis.__openDiaFindRefs);
             el.scrollIntoView({ block: "center" });
             const rect = el.getBoundingClientRect();
             const opts = { bubbles: true, cancelable: true,
@@ -1073,8 +1071,7 @@ class BrowserAutomation {
           break;
         case "focus":
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, "focus");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "focus", globalThis.__openDiaFindRefs);
             el.focus();
             result = { ok: true, ref: data.ref };
           }
@@ -1083,7 +1080,7 @@ class BrowserAutomation {
         case "uncheck":
           {
             const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref, globalThis.__openDiaSnapshotRefs, action);
+              data && data.ref, globalThis.__openDiaSnapshotRefs, action, globalThis.__openDiaFindRefs);
             const want = action === "check";
             if (typeof el.checked !== "boolean") {
               throw new Error(action + ": " + data.ref + " is not a checkbox");
@@ -1177,11 +1174,7 @@ class BrowserAutomation {
         case "type":
           // SPEC ab agent_browser_type — keystroke-by-keystroke append.
           {
-            const el = globalThis.OpenDiaSnapshot.resolveRef(
-              data && data.ref,
-              globalThis.__openDiaSnapshotRefs,
-              "type",
-            );
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "type", globalThis.__openDiaFindRefs);
             const text = data && typeof data.text === "string" ? data.text : "";
             el.scrollIntoView({ block: "center", inline: "center" });
             el.focus();

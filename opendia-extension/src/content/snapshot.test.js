@@ -78,14 +78,18 @@ test("truncates at maxNodes and sets truncated:true", () => {
   assert.equal(Object.keys(out.ref_map).length, 10);
 });
 
-test("resolveRef parses @refN and looks up the element", () => {
+test("resolveRef parses @refN and @findN against separate tables", () => {
   const { resolveRef } = require("./snapshot");
-  const fakeEl = { tagName: "BUTTON" };
-  const table = [null, null, fakeEl];
-  assert.equal(resolveRef("@ref2", table, "click"), fakeEl);
-  assert.throws(() => resolveRef(null, table, "click"), /ref required/);
-  assert.throws(() => resolveRef("ref2", table, "click"), /invalid ref/);
-  assert.throws(() => resolveRef("@ref99", table, "click"), /not in current snapshot/);
+  const snapEl = { tagName: "BUTTON" };
+  const findEl = { tagName: "A" };
+  const snapTable = [null, null, snapEl];
+  const findTable = [null, findEl];
+  assert.equal(resolveRef("@ref2", snapTable, "click", findTable), snapEl);
+  assert.equal(resolveRef("@find1", snapTable, "click", findTable), findEl);
+  assert.throws(() => resolveRef(null, snapTable, "click", findTable), /ref required/);
+  assert.throws(() => resolveRef("ref2", snapTable, "click", findTable), /invalid ref/);
+  assert.throws(() => resolveRef("@ref99", snapTable, "click", findTable), /not in current snapshot/);
+  assert.throws(() => resolveRef("@find99", snapTable, "click", findTable), /not in current find table/);
 });
 
 test("recordElements:true populates _elements parallel to ref_map", () => {
