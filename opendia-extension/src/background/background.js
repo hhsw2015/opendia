@@ -556,6 +556,58 @@ function getAvailableTools() {
       },
     },
     {
+      name: "tab_new",
+      description: "🆕 Create a new tab. Alias for tab_create matching ab agent_browser_tab_new.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          active: { type: "boolean", default: true },
+        },
+      },
+    },
+    {
+      name: "close",
+      description: "❌ Close the active tab (or the given tab_id). ab agent_browser_close.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "press",
+      description: "⌨️ Press a key (or chord like Control+a) on the active element. ab agent_browser_press.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "e.g. Enter, Tab, Escape, Control+a" },
+          tab_id: { type: "number" },
+        },
+        required: ["key"],
+      },
+    },
+    {
+      name: "scroll",
+      description: "🖱️ Scroll the page. dir ∈ up|down|left|right (default down). pixels = scroll distance (default 800). ab agent_browser_scroll.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          dir: { type: "string", enum: ["up", "down", "left", "right"], default: "down" },
+          pixels: { type: "number", default: 800 },
+          tab_id: { type: "number" },
+        },
+      },
+    },
+    {
+      name: "screenshot",
+      description: "📸 Capture the visible viewport as a JPEG (quality 70, SPEC §2.3 default). For PNG full-page raw bytes use the larger raw_screenshot tool.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          format: { type: "string", enum: ["jpeg", "png", "webp"], default: "jpeg" },
+          quality: { type: "number", default: 70 },
+          tab_id: { type: "number" },
+        },
+      },
+    },
+    {
       name: "get_url",
       description: "🔗 Return the current URL of the active (or given) tab. ab agent_browser_get_url.",
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
@@ -1609,6 +1661,21 @@ async function handleMCPRequest(message) {
       case "open":
         // SPEC alias for page_navigate; matches ab agent_browser_open.
         result = await navigateToUrl(params.url, params.wait_for, params.timeout);
+        break;
+      case "tab_new":
+        result = await createTab({ url: params.url, active: params.active });
+        break;
+      case "close":
+        result = await closeTabs({ tab_id: params.tab_id });
+        break;
+      case "press":
+        result = await sendToContentScript('press', params, params.tab_id);
+        break;
+      case "scroll":
+        result = await sendToContentScript('scroll', params, params.tab_id);
+        break;
+      case "screenshot":
+        result = await captureScreenshot(params);
         break;
       case "get_url":
         result = await tabGetField(params.tab_id, "url");

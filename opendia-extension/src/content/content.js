@@ -364,6 +364,42 @@ class BrowserAutomation {
             result = { ok: true, ref: data.ref };
           }
           break;
+        case "press":
+          // SPEC ab agent_browser_press — key event on the focused element.
+          // Accepts plain keys ("Enter") and chords ("Control+a").
+          {
+            const keyStr = data && data.key;
+            if (!keyStr) throw new Error("press: key required");
+            const target = document.activeElement || document.body;
+            const parts = String(keyStr).split("+");
+            const key = parts[parts.length - 1];
+            const init = {
+              key,
+              code: key.length === 1 ? "Key" + key.toUpperCase() : key,
+              bubbles: true,
+              cancelable: true,
+              ctrlKey: parts.includes("Control") || parts.includes("Ctrl"),
+              shiftKey: parts.includes("Shift"),
+              altKey: parts.includes("Alt"),
+              metaKey: parts.includes("Meta") || parts.includes("Cmd"),
+            };
+            target.dispatchEvent(new KeyboardEvent("keydown", init));
+            target.dispatchEvent(new KeyboardEvent("keypress", init));
+            target.dispatchEvent(new KeyboardEvent("keyup", init));
+            result = { ok: true, key: keyStr, target_tag: target.tagName ? target.tagName.toLowerCase() : null };
+          }
+          break;
+        case "scroll":
+          // SPEC ab agent_browser_scroll — window scroll.
+          {
+            const dir = (data && data.dir) || "down";
+            const px = (data && typeof data.pixels === "number") ? data.pixels : 800;
+            const dx = dir === "left" ? -px : dir === "right" ? px : 0;
+            const dy = dir === "up" ? -px : dir === "down" ? px : 0;
+            window.scrollBy({ left: dx, top: dy, behavior: "instant" });
+            result = { ok: true, dir, pixels: px, scroll_y: window.scrollY };
+          }
+          break;
         case "type":
           // SPEC ab agent_browser_type — keystroke-by-keystroke append.
           {
