@@ -301,6 +301,19 @@ class BrowserAutomation {
           // Health check for background tab content script readiness
           result = { status: "ready", timestamp: Date.now(), url: window.location.href };
           break;
+        case "snapshot":
+          // SPEC §4.1 browser_snapshot — compact a11y/DOM tree + ref map.
+          // snapshot.js is loaded ahead of content.js by the manifest and
+          // attaches its API to globalThis.OpenDiaSnapshot.
+          if (!globalThis.OpenDiaSnapshot) {
+            throw new Error("snapshot module not loaded");
+          }
+          result = globalThis.OpenDiaSnapshot.compactSnapshot(document.body, {
+            interactiveOnly: !!(data && data.interactive_only),
+            maxNodes: (data && data.max_nodes) || 400,
+            source_id: window.location.href,
+          });
+          break;
         default:
           throw new Error(`Unknown action: ${action}`);
       }

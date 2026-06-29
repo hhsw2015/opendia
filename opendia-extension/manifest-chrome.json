@@ -38,7 +38,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/polyfill/browser-polyfill.min.js", "src/content/content.js"],
+      "js": ["src/polyfill/browser-polyfill.min.js", "src/content/snapshot.js", "src/content/content.js"],
       "run_at": "document_idle"
     }
   ],

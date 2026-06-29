@@ -478,6 +478,29 @@ function getAvailableTools() {
     
     // Page Analysis Tools
     {
+      // SPEC §4.1 — the compact a11y/DOM snapshot + ref map. Prereq for
+      // every ref-dependent ab parity tool (click/fill/hover/...).
+      // Cheap: prefer this over page_extract_content for navigation use.
+      name: "snapshot",
+      description: "📐 SPEC §4.1: compact a11y/DOM snapshot with @refN anchors. Prefer this for navigation discovery; pair @refN with the matching click/fill tool. Cheap; returns ~100-400 nodes.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          interactive_only: {
+            type: "boolean",
+            default: false,
+            description: "If true, only nodes with an actionable role/tag/onclick/tabindex are listed.",
+          },
+          max_nodes: {
+            type: "number",
+            default: 400,
+            description: "Soft cap on emitted nodes; sets truncated=true if exceeded.",
+          },
+          tab_id: { type: "number", description: "Optional tab id; defaults to active tab." },
+        },
+      },
+    },
+    {
       name: "page_analyze",
       description: "🔍 BACKGROUND TAB READY: Analyze any tab without switching to it! Two-phase intelligent page analysis with token efficiency optimization. Use tab_id parameter to analyze background tabs while staying on current page.",
       inputSchema: {
@@ -1479,6 +1502,9 @@ async function handleMCPRequest(message) {
 
     switch (method) {
       // New automation tools with background tab support
+      case "snapshot":
+        result = await sendToContentScript('snapshot', params, params.tab_id);
+        break;
       case "page_analyze":
         result = await sendToContentScript('analyze', params, params.tab_id);
         break;

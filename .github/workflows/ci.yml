@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "experiment/replace-ab"]
   pull_request:
 
 jobs:
@@ -43,5 +43,7 @@ jobs:
         run: node build.js validate
       - name: Structure tests
         run: node test-extension.js
+      - name: Unit tests (snapshot, …)
+        run: node --test src/content/snapshot.test.js
       - name: Lint Firefox build (web-ext)
         run: npx web-ext lint --source-dir=dist/firefox --self-hosted
