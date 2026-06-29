@@ -854,6 +854,19 @@ function getAvailableTools() {
       inputSchema: { type: "object", properties: { interactive_only: { type: "boolean" }, max_nodes: { type: "number" }, tab_id: { type: "number" } } },
     },
     {
+      name: "annotate_screenshot",
+      description: "🎯📸 Capture the viewport + overlay numbered circles on every interactive @refN. Returns one base64 JPEG that vision models can read directly to pick the right ref. Pairs with snapshot — same @refN namespace.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          interactive_only: { type: "boolean", default: true, description: "Only annotate actionable elements (default true; false = every node)." },
+          max_nodes: { type: "number", default: 200 },
+          quality: { type: "number", default: 80, description: "JPEG quality 1-100." },
+          tab_id: { type: "number" },
+        },
+      },
+    },
+    {
       name: "get_box",
       description: "📦 getBoundingClientRect of @refN.",
       inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
@@ -2202,7 +2215,6 @@ async function handleMCPRequest(message) {
       case "find":
       case "errors":
       case "highlight":
-      case "frame_main":
       case "react_tree":
       case "react_inspect":
       case "react_renders_start":
@@ -2217,6 +2229,9 @@ async function handleMCPRequest(message) {
       case "vitals":
       case "inspect":
       case "wait_for_function":
+      case "annotate_screenshot":
+        result = await annotateScreenshot(params);
+        break;
       case "diff_snapshot":
       case "get_box":
       case "get_styles":
@@ -2280,6 +2295,14 @@ async function handleMCPRequest(message) {
       // case here per round-4a review R2.
       case "frame_switch":
         result = await frameSwitch(params);
+        break;
+      case "frame_main":
+        // Clear sticky frame target — subsequent ops resume on top frame.
+        {
+          const fid = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+          if (fid) __frameTargetByTab.delete(fid);
+          result = { ok: true, tab_id: fid, current: "main", note: "sticky frame target cleared" };
+        }
         break;
       case "add_init_script":
         result = await addInitScript(params);
@@ -3542,7 +3565,7 @@ async function moveMouse(params) {
   };
 }
 
-async function sendToContentScript(action, data, targetTabId = null) {
+async function sendToContentScript(action, data, targetTabId = null, frameId = null) {
   let targetTab;
   
   if (targetTabId) {
@@ -3568,8 +3591,13 @@ async function sendToContentScript(action, data, targetTabId = null) {
   // Ensure content script is available in the target tab
   await ensureContentScriptReady(targetTab.id);
   
+  // Effective frame: explicit param > sticky frame state per tab > top.
+  const stickyFrame = (frameId == null) ? __frameTargetByTab.get(targetTab.id) : null;
+  const effectiveFrameId = (frameId != null) ? frameId : stickyFrame;
+  const opts = effectiveFrameId != null ? { frameId: effectiveFrameId } : {};
+
   return new Promise((resolve, reject) => {
-    browser.tabs.sendMessage(targetTab.id, { action, data }, (response) => {
+    browser.tabs.sendMessage(targetTab.id, { action, data }, opts, (response) => {
       if (browser.runtime.lastError) {
         reject(new Error(`Tab ${targetTab.id}: ${browser.runtime.lastError.message}`));
       } else if (response && response.success) {
@@ -3743,6 +3771,107 @@ async function cdpTraceStop(params) {
   return { ok: true, tab_id: id, note: "Tracing.end fired; events stream is consumed externally" };
 }
 
+// SPEC ab annotate_screenshot — viewport screenshot + numbered overlay
+// drawn on every interactive @refN. Two-phase:
+//   1. content-script collects rects (annotate_screenshot_collect).
+//   2. background captures via captureScreenshot, then composites with
+//      OffscreenCanvas in the service worker.
+async function annotateScreenshot(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("annotate_screenshot: no active tab");
+
+  // Phase 1: collect rects
+  const collect = await sendToContentScript('annotate_screenshot_collect', {
+    interactive_only: params.interactive_only !== false,
+    max_nodes: params.max_nodes || 200,
+  }, id);
+  if (!collect || !Array.isArray(collect.annotations)) {
+    throw new Error("annotate_screenshot: collect failed");
+  }
+  const { annotations, viewport } = collect;
+
+  // Phase 2: capture viewport (PNG to preserve text crispness; we'll
+  // re-encode to JPEG after compositing).
+  const shot = await captureScreenshot({ format: "png", tab_id: id });
+  if (!shot || !shot.base64) {
+    throw new Error("annotate_screenshot: capture returned no image");
+  }
+  const dataUrl = `data:${shot.mime || "image/png"};base64,${shot.base64}`;
+
+  // Phase 3: composite via OffscreenCanvas.
+  const blob = await (await fetch(dataUrl)).blob();
+  const bitmap = await createImageBitmap(blob);
+  // Screenshot is at devicePixelRatio scale; coordinates from
+  // getBoundingClientRect are in CSS px, so we scale them up.
+  const scale = (bitmap.width && viewport && viewport.width)
+    ? bitmap.width / viewport.width
+    : 1;
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bitmap, 0, 0);
+
+  // Draw rectangles + numbered circles. Red box, white-filled circle
+  // with red border + black number. Skip overlapping circles via a
+  // simple grid bucket so labels don't pile up.
+  const buckets = new Set();
+  ctx.lineWidth = Math.max(2, Math.round(2 * scale));
+  ctx.font = `${Math.round(14 * scale)}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  for (const ann of annotations) {
+    const x = Math.round(ann.x * scale);
+    const y = Math.round(ann.y * scale);
+    const w = Math.round(ann.w * scale);
+    const h = Math.round(ann.h * scale);
+    if (w < 8 || h < 8) continue;
+
+    // Box
+    ctx.strokeStyle = "rgba(255,32,32,0.85)";
+    ctx.strokeRect(x + 1, y + 1, Math.max(0, w - 2), Math.max(0, h - 2));
+
+    // Label position: top-left corner; bucket to avoid overlap
+    const cx = x + Math.round(8 * scale);
+    const cy = y + Math.round(8 * scale);
+    const bx = Math.floor(cx / Math.round(20 * scale));
+    const by = Math.floor(cy / Math.round(20 * scale));
+    const key = bx + "," + by;
+    if (buckets.has(key)) continue;
+    buckets.add(key);
+
+    const r = Math.round(11 * scale);
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,32,32,1)";
+    ctx.lineWidth = Math.max(1.5, Math.round(1.5 * scale));
+    ctx.stroke();
+    ctx.fillStyle = "#000";
+    // Strip the @ref prefix; the agent only needs the number.
+    const label = ann.ref.replace("@ref", "");
+    ctx.fillText(label, cx, cy);
+  }
+
+  // Encode JPEG
+  const q = (typeof params.quality === "number" ? params.quality : 80) / 100;
+  const outBlob = await canvas.convertToBlob({ type: "image/jpeg", quality: q });
+  const buf = await outBlob.arrayBuffer();
+  const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+  return {
+    ok: true,
+    schema_version: "1",
+    format: "jpeg",
+    base64: b64,
+    width: bitmap.width,
+    height: bitmap.height,
+    viewport,
+    annotations: annotations.map((a) => ({ ref: a.ref, role: a.role, name: a.name })),
+    ref_count: annotations.length,
+  };
+}
+
 // SPEC ab pdf — CDP Page.printToPDF; returns base64.
 async function capturePdf(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
@@ -3803,6 +3932,11 @@ async function diffScreenshot(params) {
   };
 }
 
+// Per-tab "current frame" state set by frame_switch / cleared by
+// frame_main. sendToContentScript reads this so subsequent ops dispatch
+// to the chosen frame.
+const __frameTargetByTab = new Map();
+
 // SPEC ab frame_switch — list frames in tab; pick by URL substring or id.
 async function frameSwitch(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
@@ -3820,8 +3954,10 @@ async function frameSwitch(params) {
   if (!target) {
     return { ok: false, error: "frame_switch: no frame matched", frames: frames.map((f) => ({ id: f.frameId, url: f.url, parent: f.parentFrameId })) };
   }
-  return { ok: true, tab_id: id, frame: { id: target.frameId, url: target.url, parent: target.parentFrameId },
-           note: "WS pipe still targets the top frame; subsequent content-script ops run there. CDP-level frame routing is a future PR." };
+  // Sticky-bind: subsequent sendToContentScript calls on this tab go
+  // to target.frameId until frame_main clears it.
+  __frameTargetByTab.set(id, target.frameId);
+  return { ok: true, tab_id: id, frame: { id: target.frameId, url: target.url, parent: target.parentFrameId } };
 }
 
 // SPEC ab add_init_script / remove_init_script — CDP Page.addScript...

@@ -156,7 +156,15 @@ function compactSnapshot(root, opts) {
         ? rawName.slice(0, o.maxNameLen) + "…"
         : rawName;
       const ref = "@ref" + nextRef;
-      refMap[ref] = { role, name, frame_id: null };
+      const entry = { role, name, frame_id: null };
+      if (o.includeRects && typeof node.getBoundingClientRect === "function") {
+        const r = node.getBoundingClientRect();
+        if (r && (r.width > 0 || r.height > 0)) {
+          entry.rect = { x: Math.round(r.left), y: Math.round(r.top),
+                         w: Math.round(r.width), h: Math.round(r.height) };
+        }
+      }
+      refMap[ref] = entry;
       if (o.recordElements) refElements[nextRef] = node;
       const prefix = "  ".repeat(depth);
       const nameTok = name ? ' "' + name.replace(/"/g, "'") + '"' : "";

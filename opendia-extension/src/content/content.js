@@ -642,6 +642,42 @@ class BrowserAutomation {
             if (!result) throw new Error("wait_for_function: timed out after " + timeout + "ms");
           }
           break;
+        case "annotate_screenshot_collect":
+          // Phase 1 of annotate_screenshot — collect interactive ref
+          // bounding rects in viewport coords. Background then composites
+          // onto the captured screenshot via OffscreenCanvas.
+          {
+            if (!globalThis.OpenDiaSnapshot) throw new Error("snapshot module not loaded");
+            const snap = globalThis.OpenDiaSnapshot.compactSnapshot(document.body, {
+              interactiveOnly: !!(data && data.interactive_only !== false),
+              maxNodes: (data && data.max_nodes) || 200,
+              source_id: window.location.href,
+              recordElements: true,
+              includeRects: true,
+            });
+            globalThis.__openDiaSnapshotRefs = snap._elements || [];
+            globalThis.__openDiaSnapshotText = snap.text;
+            globalThis.__openDiaSnapshotUrl = window.location.href;
+            delete snap._elements;
+            // Filter to refs with usable rects (in-viewport, > 4px)
+            const annotations = [];
+            for (const [ref, entry] of Object.entries(snap.ref_map)) {
+              if (!entry.rect) continue;
+              const r = entry.rect;
+              if (r.w < 4 || r.h < 4) continue;
+              if (r.y > window.innerHeight || r.x > window.innerWidth) continue;
+              if (r.y + r.h < 0 || r.x + r.w < 0) continue;
+              annotations.push({ ref, x: r.x, y: r.y, w: r.w, h: r.h, role: entry.role, name: entry.name });
+            }
+            result = {
+              ok: true,
+              schema_version: "1",
+              viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio || 1 },
+              annotations,
+              ref_count: annotations.length,
+            };
+          }
+          break;
         case "diff_snapshot":
           // SPEC §4 diff_snapshot — re-render and diff against the last
           // text-form snapshot stashed on globalThis.__openDiaSnapshotText.
