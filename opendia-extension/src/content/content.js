@@ -16,6 +16,7 @@ if (typeof window.OpenDiaContentScriptLoaded !== 'undefined') {
 function __openDiaInvalidateRefs() {
   globalThis.__openDiaSnapshotRefs = [];
   globalThis.__openDiaSnapshotText = "";
+  globalThis.__openDiaSnapshotUrl = "";
   globalThis.__openDiaFindRefs = [];
 }
 window.addEventListener("pageshow", __openDiaInvalidateRefs);
@@ -663,6 +664,7 @@ class BrowserAutomation {
             // Persist new state for the next diff.
             globalThis.__openDiaSnapshotRefs = fresh._elements || [];
             globalThis.__openDiaSnapshotText = fresh.text;
+            globalThis.__openDiaSnapshotUrl = window.location.href;
             delete fresh._elements;
             result = {
               schema_version: "1",
@@ -692,6 +694,7 @@ class BrowserAutomation {
             // strips the elements array; SPEC §4.1 stays pure JSON.
             globalThis.__openDiaSnapshotRefs = snap._elements || [];
             globalThis.__openDiaSnapshotText = snap.text;
+            globalThis.__openDiaSnapshotUrl = window.location.href;
             delete snap._elements;
             result = snap;
           }
@@ -783,6 +786,9 @@ class BrowserAutomation {
             const match = document.querySelector(sel);
             if (!match) throw new Error("find: no element matches \"" + sel + "\"");
             const table = globalThis.__openDiaFindRefs || (globalThis.__openDiaFindRefs = []);
+            // Cap at 1000 entries to bound memory in long-running agent
+            // sessions where find/find_by_* may be called repeatedly.
+            if (table.length >= 1000) table.length = 0;
             const ref = "@find" + table.length;
             table.push(match);
             result = { ok: true, ref, selector: sel, tag: match.tagName ? match.tagName.toLowerCase() : null };
@@ -915,6 +921,9 @@ class BrowserAutomation {
               throw new Error(action + ": no match for \"" + needle + "\"");
             }
             const table = globalThis.__openDiaFindRefs || (globalThis.__openDiaFindRefs = []);
+            // Cap at 1000 entries to bound memory in long-running agent
+            // sessions where find/find_by_* may be called repeatedly.
+            if (table.length >= 1000) table.length = 0;
             const ref = "@find" + table.length;
             table.push(match);
             result = {

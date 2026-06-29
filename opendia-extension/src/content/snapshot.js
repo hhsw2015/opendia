@@ -180,17 +180,31 @@ function resolveRef(refStr, snapshotTable, opName, findTable) {
   const op = opName || "ref";
   if (!refStr) throw new Error(op + ": ref required (e.g. \"@ref3\" or \"@find2\")");
   const s = String(refStr);
+  // Stale-navigation guard: a snapshot's URL is stamped on the global at
+  // snap time. If location.href has since changed and the navigation
+  // invalidator missed it (some frameworks bypass pushState), fail fast
+  // rather than dispatch into a detached node.
+  if (typeof window !== "undefined" && globalThis.__openDiaSnapshotUrl &&
+      window.location && window.location.href !== globalThis.__openDiaSnapshotUrl) {
+    throw new Error(op + ": stale snapshot — page navigated since the last snapshot (call snapshot again)");
+  }
   let m;
   if ((m = s.match(/^@ref(\d+)$/))) {
     const idx = parseInt(m[1], 10);
     const el = (snapshotTable || [])[idx];
     if (!el) throw new Error(op + ": " + refStr + " not in current snapshot (call snapshot first)");
+    if (typeof el.isConnected === "boolean" && !el.isConnected) {
+      throw new Error(op + ": " + refStr + " element is detached from the document (page changed; call snapshot again)");
+    }
     return el;
   }
   if ((m = s.match(/^@find(\d+)$/))) {
     const idx = parseInt(m[1], 10);
     const el = (findTable || [])[idx];
     if (!el) throw new Error(op + ": " + refStr + " not in current find table (call find/find_by_* first)");
+    if (typeof el.isConnected === "boolean" && !el.isConnected) {
+      throw new Error(op + ": " + refStr + " element is detached from the document (page changed; call find again)");
+    }
     return el;
   }
   throw new Error(op + ": invalid ref \"" + refStr + "\" (expected @refN or @findN)");
