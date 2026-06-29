@@ -2229,6 +2229,8 @@ async function handleMCPRequest(message) {
       case "vitals":
       case "inspect":
       case "wait_for_function":
+        result = await sendToContentScript(method, params, params.tab_id);
+        break;
       case "annotate_screenshot":
         result = await annotateScreenshot(params);
         break;
