@@ -301,6 +301,99 @@ class BrowserAutomation {
           // Health check for background tab content script readiness
           result = { status: "ready", timestamp: Date.now(), url: window.location.href };
           break;
+        case "console":
+          // Buffered console.log/warn/error. Page bootstrap installs the
+          // hook (idempotent); the WS op flushes & returns it.
+          {
+            if (!globalThis.__openDiaConsoleBuf) {
+              globalThis.__openDiaConsoleBuf = [];
+              for (const lvl of ["log", "warn", "error", "info", "debug"]) {
+                const orig = console[lvl].bind(console);
+                console[lvl] = function (...args) {
+                  globalThis.__openDiaConsoleBuf.push({
+                    level: lvl,
+                    text: args.map((a) => {
+                      try { return typeof a === "string" ? a : JSON.stringify(a); }
+                      catch { return String(a); }
+                    }).join(" "),
+                    ts: Date.now(),
+                  });
+                  if (globalThis.__openDiaConsoleBuf.length > 500) globalThis.__openDiaConsoleBuf.shift();
+                  return orig(...args);
+                };
+              }
+            }
+            const flush = !!(data && data.flush !== false);
+            const messages = globalThis.__openDiaConsoleBuf.slice();
+            if (flush) globalThis.__openDiaConsoleBuf.length = 0;
+            result = { ok: true, messages, count: messages.length };
+          }
+          break;
+        case "vitals":
+          // Best-effort web-vitals snapshot using PerformanceObserver
+          // entries already in memory. No new dependency.
+          {
+            const navEntry = performance.getEntriesByType("navigation")[0];
+            const paint = Object.fromEntries(
+              performance.getEntriesByType("paint").map((e) => [e.name, e.startTime])
+            );
+            const largestContentful = performance.getEntriesByType("largest-contentful-paint").slice(-1)[0];
+            result = {
+              ok: true,
+              navigation: navEntry ? {
+                type: navEntry.type,
+                duration: navEntry.duration,
+                domContentLoaded: navEntry.domContentLoadedEventEnd,
+                load: navEntry.loadEventEnd,
+              } : null,
+              paint,
+              lcp: largestContentful ? largestContentful.startTime : null,
+            };
+          }
+          break;
+        case "inspect":
+          // CSS-selector → detailed shape (tag, text, role, rect, attrs).
+          {
+            const sel = data && data.selector;
+            if (!sel) throw new Error("inspect: selector required");
+            const el = document.querySelector(sel);
+            if (!el) throw new Error("inspect: no element matches \"" + sel + "\"");
+            const rect = el.getBoundingClientRect();
+            const attrs = {};
+            for (const a of el.attributes || []) attrs[a.name] = a.value;
+            result = {
+              ok: true,
+              selector: sel,
+              tag: el.tagName ? el.tagName.toLowerCase() : null,
+              text: (el.innerText || "").trim().slice(0, 200),
+              rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+              attrs,
+              visible: rect.width > 0 && rect.height > 0,
+            };
+          }
+          break;
+        case "wait_for_function":
+          // SPEC ab — DANGEROUS_TOOLS: eval a JS expression in poll loop
+          // until truthy. Pre-marked dangerous in matrix.
+          {
+            const expr = data && data.script;
+            if (!expr) throw new Error("wait_for_function: script required");
+            const timeout = (data && data.timeout) || 10000;
+            const start = Date.now();
+            // eslint-disable-next-line no-new-func
+            const fn = new Function("return (" + expr + ");");
+            while (Date.now() - start < timeout) {
+              let r;
+              try { r = fn(); } catch (e) { r = false; }
+              if (r) {
+                result = { ok: true, value: r === true || r === false ? r : null, waited_ms: Date.now() - start };
+                break;
+              }
+              await new Promise((res) => setTimeout(res, 100));
+            }
+            if (!result) throw new Error("wait_for_function: timed out after " + timeout + "ms");
+          }
+          break;
         case "diff_snapshot":
           // SPEC §4 diff_snapshot — re-render and diff against the last
           // text-form snapshot stashed on globalThis.__openDiaSnapshotText.

@@ -556,6 +556,46 @@ function getAvailableTools() {
       },
     },
     {
+      name: "console",
+      description: "📜 Return buffered console.log/warn/error/info/debug messages from the page (last 500). Pass {flush:false} to peek without clearing.",
+      inputSchema: { type: "object", properties: { flush: { type: "boolean", default: true }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "vitals",
+      description: "📊 Snapshot web-vitals (navigation timing, paint, LCP) from PerformanceObserver entries already in memory.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "inspect",
+      description: "🔬 Inspect one element by CSS selector — returns tag, text, rect, attrs.",
+      inputSchema: { type: "object", properties: { selector: { type: "string" }, tab_id: { type: "number" } }, required: ["selector"] },
+    },
+    {
+      name: "wait_for_function",
+      description: "⚠️ DANGEROUS: eval a JS expression in the page's content-script context until it returns truthy (or timeout). Use only when wait_for_selector / wait_for_text don't fit.",
+      inputSchema: { type: "object", properties: { script: { type: "string" }, timeout: { type: "number", default: 10000 }, tab_id: { type: "number" } }, required: ["script"] },
+    },
+    {
+      name: "confirm",
+      description: "✅ Alias for dialog_accept; pre-arms the next confirm() to return true.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "cookies_get",
+      description: "🍪 Read cookies for the current tab's URL via chrome.cookies. Pass {url} to override.",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "cookies_clear",
+      description: "🍪🗑️ Clear all cookies for the current tab's URL (or pass {url}).",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "get_cdp_url",
+      description: "🔌 Return a chrome://inspect-style debuggable URL for the active tab (Chrome-only).",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
       name: "diff_snapshot",
       description: "📐Δ Compute the difference vs the last snapshot. Returns {added, removed} lines + new ref_count. Cheap; prefer this when monitoring an SPA route change.",
       inputSchema: { type: "object", properties: { interactive_only: { type: "boolean" }, max_nodes: { type: "number" }, tab_id: { type: "number" } } },
@@ -1917,6 +1957,10 @@ async function handleMCPRequest(message) {
       case "find_by_placeholder":
       case "find_by_testid":
       case "find":
+      case "console":
+      case "vitals":
+      case "inspect":
+      case "wait_for_function":
       case "diff_snapshot":
       case "get_box":
       case "get_styles":
@@ -1947,10 +1991,20 @@ async function handleMCPRequest(message) {
         result = await cdpSetMedia(params);
         break;
       case "dialog_accept":
+      case "confirm":
         result = await prearmDialog(params.tab_id, "accept", params.text);
         break;
       case "dialog_dismiss":
         result = await prearmDialog(params.tab_id, "dismiss", null);
+        break;
+      case "cookies_get":
+        result = await cookiesGet(params);
+        break;
+      case "cookies_clear":
+        result = await cookiesClear(params);
+        break;
+      case "get_cdp_url":
+        result = await getCdpUrl(params);
         break;
       case "hover":
         result = await sendToContentScript('hover', params, params.tab_id);
@@ -3234,6 +3288,37 @@ async function waitForTabLoad(params) {
     await new Promise((r) => setTimeout(r, 150));
   }
   throw new Error("wait_for_load: did not reach complete within " + timeout + "ms");
+}
+
+// SPEC ab cookies_* — chrome.cookies API.
+async function cookiesGet(params) {
+  const url = params.url ?? await activeTabUrl(params.tab_id);
+  const cookies = await chrome.cookies.getAll({ url });
+  return { ok: true, url, cookies };
+}
+
+async function cookiesClear(params) {
+  const url = params.url ?? await activeTabUrl(params.tab_id);
+  const cookies = await chrome.cookies.getAll({ url });
+  for (const c of cookies) {
+    await chrome.cookies.remove({ url, name: c.name });
+  }
+  return { ok: true, url, cleared: cookies.length };
+}
+
+async function activeTabUrl(tabId) {
+  const id = tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("no active tab");
+  const tab = await chrome.tabs.get(id);
+  return tab.url || "";
+}
+
+async function getCdpUrl(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("get_cdp_url: no active tab");
+  // Chrome DevTools front-end URL — only useful when the user has
+  // --remote-debugging-port set; otherwise this is best-effort.
+  return { ok: true, tab_id: id, cdp_url: "devtools://devtools/bundled/inspector.html?ws=localhost:9222/devtools/page/" + id };
 }
 
 // SPEC ab dialog_accept / dialog_dismiss — pre-arm the next
