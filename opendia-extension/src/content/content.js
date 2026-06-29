@@ -326,20 +326,71 @@ class BrowserAutomation {
         case "click":
           // SPEC ab agent_browser_click via @refN from the last snapshot.
           {
-            const refStr = data && data.ref;
-            if (!refStr) throw new Error("click: ref required (e.g. \"@ref3\")");
-            const m = String(refStr).match(/^@ref(\d+)$/);
-            if (!m) throw new Error("click: invalid ref \"" + refStr + "\"");
-            const idx = parseInt(m[1], 10);
-            const table = globalThis.__openDiaSnapshotRefs || [];
-            const el = table[idx];
-            if (!el) throw new Error("click: " + refStr + " not in current snapshot (call snapshot first)");
-            // Use a native event so framework-level handlers fire. The
-            // existing clickElement path is geared at element_id from the
-            // older page_analyze; we're cheaper and direct.
+            if (!globalThis.OpenDiaSnapshot) throw new Error("snapshot module not loaded");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref,
+              globalThis.__openDiaSnapshotRefs,
+              "click",
+            );
             el.scrollIntoView({ block: "center", inline: "center" });
             el.click();
-            result = { ok: true, ref: refStr, tag: el.tagName ? el.tagName.toLowerCase() : null };
+            result = { ok: true, ref: data.ref, tag: el.tagName ? el.tagName.toLowerCase() : null };
+          }
+          break;
+        case "fill":
+          // SPEC ab agent_browser_fill — set value + fire input/change.
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref,
+              globalThis.__openDiaSnapshotRefs,
+              "fill",
+            );
+            const value = data && typeof data.value === "string" ? data.value : "";
+            el.scrollIntoView({ block: "center", inline: "center" });
+            el.focus();
+            // Cover both <input>/<textarea> (.value) and contenteditable.
+            if ("value" in el) {
+              const proto = Object.getPrototypeOf(el);
+              const desc = Object.getOwnPropertyDescriptor(proto, "value");
+              if (desc && desc.set) desc.set.call(el, value);
+              else el.value = value;
+            } else if (el.isContentEditable) {
+              el.textContent = value;
+            } else {
+              throw new Error("fill: " + data.ref + " is not fillable");
+            }
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "type":
+          // SPEC ab agent_browser_type — keystroke-by-keystroke append.
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref,
+              globalThis.__openDiaSnapshotRefs,
+              "type",
+            );
+            const text = data && typeof data.text === "string" ? data.text : "";
+            el.scrollIntoView({ block: "center", inline: "center" });
+            el.focus();
+            for (const ch of text) {
+              const ev = (kind) => new KeyboardEvent(kind, {
+                key: ch, char: ch, bubbles: true, cancelable: true,
+              });
+              el.dispatchEvent(ev("keydown"));
+              el.dispatchEvent(ev("keypress"));
+              if ("value" in el) {
+                el.value = (el.value || "") + ch;
+              } else if (el.isContentEditable) {
+                el.textContent = (el.textContent || "") + ch;
+              }
+              el.dispatchEvent(new Event("input", { bubbles: true }));
+              el.dispatchEvent(ev("keyup"));
+            }
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            result = { ok: true, ref: data.ref, length: text.length };
           }
           break;
         default:

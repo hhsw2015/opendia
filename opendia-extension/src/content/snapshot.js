@@ -172,7 +172,24 @@ function compactSnapshot(root, opts) {
   return out;
 }
 
-const api = { compactSnapshot, _internals: { roleOf, nameOf, isActionable } };
+// SPEC: shared @refN → live element resolver consumed by click/fill/type.
+// Pulled out so node --test can exercise the parsing+lookup edge cases.
+function resolveRef(refStr, table, opName) {
+  const op = opName || "ref";
+  if (!refStr) throw new Error(op + ": ref required (e.g. \"@ref3\")");
+  const m = String(refStr).match(/^@ref(\d+)$/);
+  if (!m) throw new Error(op + ": invalid ref \"" + refStr + "\"");
+  const idx = parseInt(m[1], 10);
+  const el = (table || [])[idx];
+  if (!el) throw new Error(op + ": " + refStr + " not in current snapshot (call snapshot first)");
+  return el;
+}
+
+const api = {
+  compactSnapshot,
+  resolveRef,
+  _internals: { roleOf, nameOf, isActionable },
+};
 if (moduleRef) {
   moduleRef.exports = api;
 } else {

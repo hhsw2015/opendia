@@ -78,6 +78,16 @@ test("truncates at maxNodes and sets truncated:true", () => {
   assert.equal(Object.keys(out.ref_map).length, 10);
 });
 
+test("resolveRef parses @refN and looks up the element", () => {
+  const { resolveRef } = require("./snapshot");
+  const fakeEl = { tagName: "BUTTON" };
+  const table = [null, null, fakeEl];
+  assert.equal(resolveRef("@ref2", table, "click"), fakeEl);
+  assert.throws(() => resolveRef(null, table, "click"), /ref required/);
+  assert.throws(() => resolveRef("ref2", table, "click"), /invalid ref/);
+  assert.throws(() => resolveRef("@ref99", table, "click"), /not in current snapshot/);
+});
+
 test("recordElements:true populates _elements parallel to ref_map", () => {
   const root = el("body", {}, [
     el("button", { "aria-label": "Submit" }),

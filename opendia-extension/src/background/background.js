@@ -530,6 +530,32 @@ function getAvailableTools() {
       },
     },
     {
+      name: "fill",
+      description: "✏️ Set the value of an input/textarea/contenteditable by @refN. Fires input + change events. Call snapshot first.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ref: { type: "string" },
+          value: { type: "string" },
+          tab_id: { type: "number" },
+        },
+        required: ["ref", "value"],
+      },
+    },
+    {
+      name: "type",
+      description: "⌨️ Type text into a focused element by @refN, character-by-character (key events fire). Use fill for the cheaper bulk path; use type when the page listens for keydown/keypress.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ref: { type: "string" },
+          text: { type: "string" },
+          tab_id: { type: "number" },
+        },
+        required: ["ref", "text"],
+      },
+    },
+    {
       name: "back",
       description: "↩️ Navigate the tab one step back in history. ab agent_browser_back.",
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
@@ -1577,6 +1603,12 @@ async function handleMCPRequest(message) {
       case "click":
         // SPEC ab agent_browser_click — @refN-based.
         result = await sendToContentScript('click', params, params.tab_id);
+        break;
+      case "fill":
+        result = await sendToContentScript('fill', params, params.tab_id);
+        break;
+      case "type":
+        result = await sendToContentScript('type', params, params.tab_id);
         break;
       case "back":
         // SPEC ab agent_browser_back.
