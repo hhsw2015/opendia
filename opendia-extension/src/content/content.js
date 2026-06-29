@@ -364,6 +364,49 @@ class BrowserAutomation {
             result = { ok: true, ref: data.ref };
           }
           break;
+        case "find_by_role":
+        case "find_by_text":
+        case "find_by_label":
+        case "find_by_placeholder":
+        case "find_by_testid":
+          // Each finder produces a fresh @refN slotted into the live
+          // ref table (so the agent can immediately click/fill it).
+          {
+            const all = Array.from(document.querySelectorAll("*"));
+            let match = null;
+            const needle = (data && data.query) || "";
+            if (action === "find_by_role") {
+              const role = (data && data.role) || needle;
+              match = all.find((el) => (el.getAttribute("role") || "").toLowerCase() === String(role).toLowerCase());
+            } else if (action === "find_by_text") {
+              const lc = needle.toLowerCase();
+              match = all.find((el) => (el.innerText || "").toLowerCase().trim() === lc) ||
+                      all.find((el) => (el.innerText || "").toLowerCase().includes(lc));
+            } else if (action === "find_by_label") {
+              const labels = Array.from(document.querySelectorAll("label"));
+              const labelEl = labels.find((l) => (l.textContent || "").trim().toLowerCase() === needle.toLowerCase());
+              if (labelEl) {
+                match = labelEl.htmlFor ? document.getElementById(labelEl.htmlFor) : labelEl.querySelector("input,textarea,select");
+              }
+            } else if (action === "find_by_placeholder") {
+              match = all.find((el) => el.getAttribute && (el.getAttribute("placeholder") || "") === needle);
+            } else if (action === "find_by_testid") {
+              match = document.querySelector('[data-testid="' + (needle || "").replace(/"/g, '\\"') + '"]');
+            }
+            if (!match) {
+              throw new Error(action + ": no match for \"" + needle + "\"");
+            }
+            const table = globalThis.__openDiaSnapshotRefs || (globalThis.__openDiaSnapshotRefs = []);
+            const ref = "@ref" + table.length;
+            table.push(match);
+            result = {
+              ok: true,
+              ref,
+              tag: match.tagName ? match.tagName.toLowerCase() : null,
+              text: ((match.innerText || "").trim().slice(0, 80)),
+            };
+          }
+          break;
         case "dblclick":
           {
             const el = globalThis.OpenDiaSnapshot.resolveRef(

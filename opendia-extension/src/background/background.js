@@ -556,6 +556,41 @@ function getAvailableTools() {
       },
     },
     {
+      name: "find_by_role",
+      description: "🔎 Find an element by ARIA role; returns a fresh @refN appended to the live snapshot.",
+      inputSchema: { type: "object", properties: { role: { type: "string" }, query: { type: "string" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "find_by_text",
+      description: "🔎 Find an element by visible text (exact preferred, falls back to substring).",
+      inputSchema: { type: "object", properties: { query: { type: "string" }, tab_id: { type: "number" } }, required: ["query"] },
+    },
+    {
+      name: "find_by_label",
+      description: "🔎 Find an input by its <label> text.",
+      inputSchema: { type: "object", properties: { query: { type: "string" }, tab_id: { type: "number" } }, required: ["query"] },
+    },
+    {
+      name: "find_by_placeholder",
+      description: "🔎 Find an input by its placeholder.",
+      inputSchema: { type: "object", properties: { query: { type: "string" }, tab_id: { type: "number" } }, required: ["query"] },
+    },
+    {
+      name: "find_by_testid",
+      description: "🔎 Find an element by data-testid.",
+      inputSchema: { type: "object", properties: { query: { type: "string" }, tab_id: { type: "number" } }, required: ["query"] },
+    },
+    {
+      name: "dialog_accept",
+      description: "✅ Accept the next browser dialog (alert/confirm/prompt). One-shot; install before triggering.",
+      inputSchema: { type: "object", properties: { text: { type: "string" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "dialog_dismiss",
+      description: "❎ Dismiss the next browser dialog (alert/confirm/prompt). One-shot.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
       name: "dblclick",
       description: "🖱️🖱️ Double-click an element by @refN. Pair with snapshot.",
       inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
@@ -1776,7 +1811,18 @@ async function handleMCPRequest(message) {
       case "is_visible":
       case "is_enabled":
       case "is_checked":
+      case "find_by_role":
+      case "find_by_text":
+      case "find_by_label":
+      case "find_by_placeholder":
+      case "find_by_testid":
         result = await sendToContentScript(method, params, params.tab_id);
+        break;
+      case "dialog_accept":
+        result = await prearmDialog(params.tab_id, "accept", params.text);
+        break;
+      case "dialog_dismiss":
+        result = await prearmDialog(params.tab_id, "dismiss", null);
         break;
       case "hover":
         result = await sendToContentScript('hover', params, params.tab_id);
@@ -3060,6 +3106,28 @@ async function waitForTabLoad(params) {
     await new Promise((r) => setTimeout(r, 150));
   }
   throw new Error("wait_for_load: did not reach complete within " + timeout + "ms");
+}
+
+// SPEC ab dialog_accept / dialog_dismiss — pre-arm the next
+// alert/confirm/prompt by injecting overrides into the page main world
+// (through chrome.scripting.executeScript). One-shot; the override
+// removes itself after the first dialog.
+async function prearmDialog(tabId, action, promptText) {
+  const id = tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("dialog_" + action + ": no active tab");
+  await chrome.scripting.executeScript({
+    target: { tabId: id },
+    world: "MAIN",
+    func: (a, t) => {
+      const orig = { alert: window.alert, confirm: window.confirm, prompt: window.prompt };
+      const restore = () => Object.assign(window, orig);
+      window.alert = function () { restore(); };
+      window.confirm = function () { restore(); return a === "accept"; };
+      window.prompt = function () { restore(); return a === "accept" ? (t || "") : null; };
+    },
+    args: [action, promptText],
+  });
+  return { ok: true, action, tab_id: id };
 }
 
 async function tabReload(tabId, bypassCache) {
