@@ -501,6 +501,43 @@ function getAvailableTools() {
       },
     },
     {
+      // SPEC ab agent_browser_open. Alias for page_navigate kept for
+      // parity-matrix coverage; behaviour is identical.
+      name: "open",
+      description: "🧭 Navigate the active (or given) tab to a URL. SPEC alias for page_navigate; matches ab agent_browser_open.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Target URL (http(s)/file/data)." },
+          wait_for: { type: "string", description: "Optional CSS selector to await." },
+          timeout: { type: "number", description: "Wait timeout in ms (default 10000)." },
+          tab_id: { type: "number" },
+        },
+        required: ["url"],
+      },
+    },
+    {
+      name: "back",
+      description: "↩️ Navigate the tab one step back in history. ab agent_browser_back.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "forward",
+      description: "↪️ Navigate the tab one step forward in history. ab agent_browser_forward.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "reload",
+      description: "🔄 Reload the tab. ab agent_browser_reload. bypass_cache:true does a hard reload.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          bypass_cache: { type: "boolean", default: false },
+        },
+      },
+    },
+    {
       name: "page_analyze",
       description: "🔍 BACKGROUND TAB READY: Analyze any tab without switching to it! Two-phase intelligent page analysis with token efficiency optimization. Use tab_id parameter to analyze background tabs while staying on current page.",
       inputSchema: {
@@ -1519,6 +1556,20 @@ async function handleMCPRequest(message) {
         break;
       case "page_navigate":
         result = await navigateToUrl(params.url, params.wait_for, params.timeout);
+        break;
+      case "open":
+        // SPEC alias for page_navigate; matches ab agent_browser_open.
+        result = await navigateToUrl(params.url, params.wait_for, params.timeout);
+        break;
+      case "back":
+        // SPEC ab agent_browser_back.
+        result = await tabHistoryNavigate("back", params.tab_id);
+        break;
+      case "forward":
+        result = await tabHistoryNavigate("forward", params.tab_id);
+        break;
+      case "reload":
+        result = await tabReload(params.tab_id, !!params.bypass_cache);
         break;
       case "page_wait_for":
         result = await sendToContentScript('wait_for', params, params.tab_id);
@@ -2679,6 +2730,27 @@ async function waitForElement(tabId, selector, timeout = 5000) {
   }
   
   throw new Error(`Timeout waiting for element: ${selector}`);
+}
+
+// SPEC: ab back/forward/reload — thin wrappers over chrome.tabs.* with
+// active-tab fallback. Throws on missing tab so the WS caller sees a
+// clean error envelope instead of a silent no-op.
+async function tabHistoryNavigate(direction, tabId) {
+  const resolved = tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!resolved) throw new Error(`${direction}: no active tab`);
+  if (direction === "back") {
+    await chrome.tabs.goBack(resolved);
+  } else {
+    await chrome.tabs.goForward(resolved);
+  }
+  return { ok: true, direction, tab_id: resolved };
+}
+
+async function tabReload(tabId, bypassCache) {
+  const resolved = tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!resolved) throw new Error("reload: no active tab");
+  await chrome.tabs.reload(resolved, { bypassCache: !!bypassCache });
+  return { ok: true, tab_id: resolved, bypass_cache: !!bypassCache };
 }
 
 // Enhanced Tab Management Functions with Batch Support
