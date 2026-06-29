@@ -128,6 +128,7 @@ function isActionable(node, role) {
 function compactSnapshot(root, opts) {
   const o = Object.assign({}, DEFAULT_OPTS, opts || {});
   const refMap = {};
+  const refElements = []; // index = refN; only populated when opts.recordElements
   const lines = [];
   let nextRef = 0;
   let truncated = false;
@@ -149,6 +150,7 @@ function compactSnapshot(root, opts) {
         : rawName;
       const ref = "@ref" + nextRef;
       refMap[ref] = { role, name, frame_id: null };
+      if (o.recordElements) refElements[nextRef] = node;
       const prefix = "  ".repeat(depth);
       const nameTok = name ? ' "' + name.replace(/"/g, "'") + '"' : "";
       lines.push(prefix + "- " + ref + " " + role + nameTok);
@@ -159,13 +161,15 @@ function compactSnapshot(root, opts) {
 
   walk(root, 0);
 
-  return {
+  const out = {
     schema_version: "1",
     text: lines.join("\n"),
     ref_map: refMap,
     truncated,
     source: { kind: "browser", id: (opts && opts.source_id) || "active-tab" },
   };
+  if (o.recordElements) out._elements = refElements;
+  return out;
 }
 
 const api = { compactSnapshot, _internals: { roleOf, nameOf, isActionable } };

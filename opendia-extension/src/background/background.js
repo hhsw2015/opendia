@@ -517,6 +517,19 @@ function getAvailableTools() {
       },
     },
     {
+      // SPEC ab agent_browser_click — uses @refN from a prior snapshot.
+      name: "click",
+      description: "🖱️ Click an element by @refN from the last snapshot. Call snapshot first; pair the @refN you found with this tool.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ref: { type: "string", description: "@refN identifier from snapshot.ref_map." },
+          tab_id: { type: "number" },
+        },
+        required: ["ref"],
+      },
+    },
+    {
       name: "back",
       description: "↩️ Navigate the tab one step back in history. ab agent_browser_back.",
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
@@ -1560,6 +1573,10 @@ async function handleMCPRequest(message) {
       case "open":
         // SPEC alias for page_navigate; matches ab agent_browser_open.
         result = await navigateToUrl(params.url, params.wait_for, params.timeout);
+        break;
+      case "click":
+        // SPEC ab agent_browser_click — @refN-based.
+        result = await sendToContentScript('click', params, params.tab_id);
         break;
       case "back":
         // SPEC ab agent_browser_back.

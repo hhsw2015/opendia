@@ -308,11 +308,39 @@ class BrowserAutomation {
           if (!globalThis.OpenDiaSnapshot) {
             throw new Error("snapshot module not loaded");
           }
-          result = globalThis.OpenDiaSnapshot.compactSnapshot(document.body, {
-            interactiveOnly: !!(data && data.interactive_only),
-            maxNodes: (data && data.max_nodes) || 400,
-            source_id: window.location.href,
-          });
+          {
+            const snap = globalThis.OpenDiaSnapshot.compactSnapshot(document.body, {
+              interactiveOnly: !!(data && data.interactive_only),
+              maxNodes: (data && data.max_nodes) || 400,
+              source_id: window.location.href,
+              recordElements: true,
+            });
+            // Stash the live ref→element table so a subsequent click/fill
+            // can resolve @refN without re-walking. Wire-shape result
+            // strips the elements array; SPEC §4.1 stays pure JSON.
+            globalThis.__openDiaSnapshotRefs = snap._elements || [];
+            delete snap._elements;
+            result = snap;
+          }
+          break;
+        case "click":
+          // SPEC ab agent_browser_click via @refN from the last snapshot.
+          {
+            const refStr = data && data.ref;
+            if (!refStr) throw new Error("click: ref required (e.g. \"@ref3\")");
+            const m = String(refStr).match(/^@ref(\d+)$/);
+            if (!m) throw new Error("click: invalid ref \"" + refStr + "\"");
+            const idx = parseInt(m[1], 10);
+            const table = globalThis.__openDiaSnapshotRefs || [];
+            const el = table[idx];
+            if (!el) throw new Error("click: " + refStr + " not in current snapshot (call snapshot first)");
+            // Use a native event so framework-level handlers fire. The
+            // existing clickElement path is geared at element_id from the
+            // older page_analyze; we're cheaper and direct.
+            el.scrollIntoView({ block: "center", inline: "center" });
+            el.click();
+            result = { ok: true, ref: refStr, tag: el.tagName ? el.tagName.toLowerCase() : null };
+          }
           break;
         default:
           throw new Error(`Unknown action: ${action}`);

@@ -78,6 +78,20 @@ test("truncates at maxNodes and sets truncated:true", () => {
   assert.equal(Object.keys(out.ref_map).length, 10);
 });
 
+test("recordElements:true populates _elements parallel to ref_map", () => {
+  const root = el("body", {}, [
+    el("button", { "aria-label": "Submit" }),
+    el("a", { href: "/" }, [], "Home"),
+  ]);
+  const out = compactSnapshot(root, { recordElements: true });
+  assert.ok(Array.isArray(out._elements));
+  // ref_map keys should align with _elements indices
+  for (const ref of Object.keys(out.ref_map)) {
+    const idx = parseInt(ref.replace("@ref", ""), 10);
+    assert.ok(out._elements[idx], "missing element for " + ref);
+  }
+});
+
 test("isActionable detects role+tag+tabindex+onclick", () => {
   const { isActionable, roleOf } = _internals;
   const b = el("button");
