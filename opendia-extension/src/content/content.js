@@ -364,6 +364,114 @@ class BrowserAutomation {
             result = { ok: true, ref: data.ref };
           }
           break;
+        case "find":
+          // SPEC ab agent_browser_find — single-shot CSS lookup, slot
+          // into ref table.
+          {
+            const sel = data && data.selector;
+            if (!sel) throw new Error("find: selector required");
+            const match = document.querySelector(sel);
+            if (!match) throw new Error("find: no element matches \"" + sel + "\"");
+            const table = globalThis.__openDiaSnapshotRefs || (globalThis.__openDiaSnapshotRefs = []);
+            const ref = "@ref" + table.length;
+            table.push(match);
+            result = { ok: true, ref, selector: sel, tag: match.tagName ? match.tagName.toLowerCase() : null };
+          }
+          break;
+        case "mouse_down":
+        case "mouse_up":
+        case "mouse_move":
+          {
+            const x = (data && data.x) ?? 0;
+            const y = (data && data.y) ?? 0;
+            const target = document.elementFromPoint(x, y) || document.body;
+            const type = action.replace("mouse_", "mouse");
+            const map = { mousedown: "mousedown", mouseup: "mouseup", mousemove: "mousemove" };
+            target.dispatchEvent(new MouseEvent(map[type] || "mousemove", {
+              bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0,
+            }));
+            result = { ok: true, action, x, y };
+          }
+          break;
+        case "mouse_wheel":
+          {
+            const dx = (data && data.dx) || 0;
+            const dy = (data && data.dy) || 0;
+            window.dispatchEvent(new WheelEvent("wheel", {
+              bubbles: true, cancelable: true, deltaX: dx, deltaY: dy,
+            }));
+            window.scrollBy({ left: dx, top: dy, behavior: "instant" });
+            result = { ok: true, dx, dy };
+          }
+          break;
+        case "keydown":
+        case "keyup":
+          {
+            const key = (data && data.key) || "";
+            if (!key) throw new Error(action + ": key required");
+            const target = document.activeElement || document.body;
+            target.dispatchEvent(new KeyboardEvent(action, {
+              bubbles: true, cancelable: true, key, code: key.length === 1 ? "Key" + key.toUpperCase() : key,
+            }));
+            result = { ok: true, action, key };
+          }
+          break;
+        case "keyboard_type":
+          // Like type but to whatever element currently has focus.
+          {
+            const text = (data && data.text) || "";
+            const target = document.activeElement || document.body;
+            for (const ch of text) {
+              target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: ch }));
+              target.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, cancelable: true, key: ch }));
+              if ("value" in target) target.value = (target.value || "") + ch;
+              else if (target.isContentEditable) target.textContent = (target.textContent || "") + ch;
+              target.dispatchEvent(new Event("input", { bubbles: true }));
+              target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: ch }));
+            }
+            result = { ok: true, length: text.length };
+          }
+          break;
+        case "keyboard_insert_text":
+          // Bulk insert without per-char keystrokes.
+          {
+            const text = (data && data.text) || "";
+            const target = document.activeElement || document.body;
+            if ("value" in target) target.value = (target.value || "") + text;
+            else if (target.isContentEditable) target.textContent = (target.textContent || "") + text;
+            target.dispatchEvent(new Event("input", { bubbles: true }));
+            target.dispatchEvent(new Event("change", { bubbles: true }));
+            result = { ok: true, length: text.length };
+          }
+          break;
+        case "swipe":
+          // Touch swipe simulation — start, move, end at viewport coords.
+          {
+            const x1 = (data && data.x1) ?? 0;
+            const y1 = (data && data.y1) ?? 0;
+            const x2 = (data && data.x2) ?? 0;
+            const y2 = (data && data.y2) ?? 0;
+            const target = document.elementFromPoint((x1 + x2) / 2, (y1 + y2) / 2) || document.body;
+            const touch = (x, y) => new Touch({
+              identifier: 0, target, clientX: x, clientY: y, pageX: x, pageY: y,
+            });
+            const ev = (type, x, y) => new TouchEvent(type, {
+              bubbles: true, cancelable: true,
+              touches: [touch(x, y)], targetTouches: [touch(x, y)], changedTouches: [touch(x, y)],
+            });
+            target.dispatchEvent(ev("touchstart", x1, y1));
+            target.dispatchEvent(ev("touchmove", x2, y2));
+            target.dispatchEvent(ev("touchend", x2, y2));
+            result = { ok: true, x1, y1, x2, y2 };
+          }
+          break;
+        case "pushstate":
+          // history.pushState passthrough for SPA tests.
+          {
+            history.pushState(data && data.state ? data.state : {}, "", (data && data.url) || window.location.href);
+            result = { ok: true, url: window.location.href };
+          }
+          break;
         case "find_by_role":
         case "find_by_text":
         case "find_by_label":

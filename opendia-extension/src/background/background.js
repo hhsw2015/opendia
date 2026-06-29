@@ -556,6 +556,76 @@ function getAvailableTools() {
       },
     },
     {
+      name: "find",
+      description: "🔎 CSS-selector single-element find; returns a fresh @refN.",
+      inputSchema: { type: "object", properties: { selector: { type: "string" }, tab_id: { type: "number" } }, required: ["selector"] },
+    },
+    {
+      name: "mouse_down",
+      description: "🖱️ Press the mouse button at viewport (x, y).",
+      inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, tab_id: { type: "number" } }, required: ["x", "y"] },
+    },
+    {
+      name: "mouse_up",
+      description: "🖱️ Release the mouse button at viewport (x, y).",
+      inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, tab_id: { type: "number" } }, required: ["x", "y"] },
+    },
+    {
+      name: "mouse_move",
+      description: "🖱️ Move the mouse to viewport (x, y).",
+      inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, tab_id: { type: "number" } }, required: ["x", "y"] },
+    },
+    {
+      name: "mouse_wheel",
+      description: "🖱️ Dispatch a wheel event with deltas (and scrollBy as fallback).",
+      inputSchema: { type: "object", properties: { dx: { type: "number" }, dy: { type: "number" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "keydown",
+      description: "⌨️ Dispatch a keydown on the focused element.",
+      inputSchema: { type: "object", properties: { key: { type: "string" }, tab_id: { type: "number" } }, required: ["key"] },
+    },
+    {
+      name: "keyup",
+      description: "⌨️ Dispatch a keyup on the focused element.",
+      inputSchema: { type: "object", properties: { key: { type: "string" }, tab_id: { type: "number" } }, required: ["key"] },
+    },
+    {
+      name: "keyboard_type",
+      description: "⌨️ Type text into the focused element (per-character key events).",
+      inputSchema: { type: "object", properties: { text: { type: "string" }, tab_id: { type: "number" } }, required: ["text"] },
+    },
+    {
+      name: "keyboard_insert_text",
+      description: "⌨️ Insert text into the focused element (no per-char key events).",
+      inputSchema: { type: "object", properties: { text: { type: "string" }, tab_id: { type: "number" } }, required: ["text"] },
+    },
+    {
+      name: "swipe",
+      description: "📱 Touch swipe from (x1,y1) → (x2,y2).",
+      inputSchema: { type: "object", properties: { x1: { type: "number" }, y1: { type: "number" }, x2: { type: "number" }, y2: { type: "number" }, tab_id: { type: "number" } }, required: ["x1", "y1", "x2", "y2"] },
+    },
+    {
+      name: "pushstate",
+      description: "🛣️ history.pushState passthrough (SPA tests).",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, state: { type: "object" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "set_viewport",
+      description: "📐 Resize viewport via CDP Emulation.setDeviceMetricsOverride. Pass {width, height, mobile?, deviceScaleFactor?}.",
+      inputSchema: { type: "object", properties: { width: { type: "number" }, height: { type: "number" }, mobile: { type: "boolean" }, deviceScaleFactor: { type: "number" }, tab_id: { type: "number" } }, required: ["width", "height"] },
+    },
+    {
+      name: "set_geo",
+      description: "🌐 Override geolocation via CDP Emulation.setGeolocationOverride.",
+      inputSchema: { type: "object", properties: { latitude: { type: "number" }, longitude: { type: "number" }, accuracy: { type: "number" }, tab_id: { type: "number" } }, required: ["latitude", "longitude"] },
+    },
+    {
+      name: "set_media",
+      description: "🎨 Override prefers-color-scheme / media features via CDP Emulation.setEmulatedMedia.",
+      inputSchema: { type: "object", properties: { type: { type: "string" }, features: { type: "array", items: { type: "object" } }, tab_id: { type: "number" } } },
+    },
+    {
       name: "find_by_role",
       description: "🔎 Find an element by ARIA role; returns a fresh @refN appended to the live snapshot.",
       inputSchema: { type: "object", properties: { role: { type: "string" }, query: { type: "string" }, tab_id: { type: "number" } } },
@@ -1816,7 +1886,27 @@ async function handleMCPRequest(message) {
       case "find_by_label":
       case "find_by_placeholder":
       case "find_by_testid":
+      case "find":
+      case "mouse_down":
+      case "mouse_up":
+      case "mouse_move":
+      case "mouse_wheel":
+      case "keydown":
+      case "keyup":
+      case "keyboard_type":
+      case "keyboard_insert_text":
+      case "swipe":
+      case "pushstate":
         result = await sendToContentScript(method, params, params.tab_id);
+        break;
+      case "set_viewport":
+        result = await cdpSetViewport(params);
+        break;
+      case "set_geo":
+        result = await cdpSetGeo(params);
+        break;
+      case "set_media":
+        result = await cdpSetMedia(params);
         break;
       case "dialog_accept":
         result = await prearmDialog(params.tab_id, "accept", params.text);
@@ -3128,6 +3218,42 @@ async function prearmDialog(tabId, action, promptText) {
     args: [action, promptText],
   });
   return { ok: true, action, tab_id: id };
+}
+
+// CDP-based emulation overrides — re-using the existing _cdpSend helper
+// (search for it elsewhere in this file). Each override persists until
+// the tab is closed or a same-domain CDP clear call is issued.
+async function cdpSetViewport(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_viewport: no active tab");
+  await _cdpSend(id, "Emulation.setDeviceMetricsOverride", {
+    width: params.width,
+    height: params.height,
+    deviceScaleFactor: params.deviceScaleFactor || 1,
+    mobile: !!params.mobile,
+  });
+  return { ok: true, tab_id: id, width: params.width, height: params.height };
+}
+
+async function cdpSetGeo(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_geo: no active tab");
+  await _cdpSend(id, "Emulation.setGeolocationOverride", {
+    latitude: params.latitude,
+    longitude: params.longitude,
+    accuracy: params.accuracy ?? 100,
+  });
+  return { ok: true, tab_id: id, latitude: params.latitude, longitude: params.longitude };
+}
+
+async function cdpSetMedia(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_media: no active tab");
+  await _cdpSend(id, "Emulation.setEmulatedMedia", {
+    type: params.type || "",
+    features: params.features || [],
+  });
+  return { ok: true, tab_id: id };
 }
 
 async function tabReload(tabId, bypassCache) {
