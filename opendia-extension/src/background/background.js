@@ -667,7 +667,7 @@ function getAvailableTools() {
     },
     {
       name: "eval",
-      description: "⚠️ DANGEROUS: execute arbitrary JavaScript in the page's MAIN world via chrome.scripting.executeScript. Returns the function's return value (JSON-serializable).",
+      description: "⚠️ DANGEROUS: execute arbitrary JavaScript in the page's MAIN world via chrome.scripting.executeScript. Returns the function's return value (JSON-serializable). Use this in preference to the legacy `evaluate_js` (which is now an alias).",
       inputSchema: { type: "object", properties: { script: { type: "string" }, tab_id: { type: "number" } }, required: ["script"] },
     },
     {
@@ -680,11 +680,9 @@ function getAvailableTools() {
       description: "❓ Best-effort armed-dialog status (always ok:false from content script — see field 'note').",
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
     },
-    {
-      name: "wait_for_download",
-      description: "📥⏳ Wait for the next chrome.downloads completion (or timeout).",
-      inputSchema: { type: "object", properties: { timeout: { type: "number", default: 30000 } } },
-    },
+    // wait_for_download is registered below (line ~1947, pre-existing
+    // power tool with richer {timeout_ms, since_ms} schema). Removed
+    // the duplicate SPEC registration here per round-4a review R2.
     {
       name: "frame_switch",
       description: "🖼️ Switch the WS pipe's content-script target to a frame by URL substring or ID. No-op when not yet supported by the WS bridge.",
@@ -1065,11 +1063,11 @@ function getAvailableTools() {
       description: "⏱️ Sleep for a fixed number of milliseconds.",
       inputSchema: { type: "object", properties: { ms: { type: "number" }, tab_id: { type: "number" } }, required: ["ms"] },
     },
-    {
-      name: "wait_for_selector",
-      description: "🔍 Wait until a CSS selector matches at least one element (or timeout).",
-      inputSchema: { type: "object", properties: { selector: { type: "string" }, timeout: { type: "number", default: 10000 }, tab_id: { type: "number" } }, required: ["selector"] },
-    },
+    // wait_for_selector is registered below (line ~1809, pre-existing
+    // power tool). The pre-existing handler accepts `timeout_ms` and
+    // `visible` flags that the new schema would have lost — instead
+    // we extended the power tool to also accept `timeout` (ms).
+    // Removed the duplicate SPEC registration here per round-4a review R1.
     {
       name: "wait_for_text",
       description: "📝 Wait until the body innerText contains the given substring (or timeout).",
@@ -1125,18 +1123,8 @@ function getAvailableTools() {
         },
       },
     },
-    {
-      name: "screenshot",
-      description: "📸 Capture the visible viewport as a JPEG (quality 70, SPEC §2.3 default). For PNG full-page raw bytes use the larger raw_screenshot tool.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          format: { type: "string", enum: ["jpeg", "png", "webp"], default: "jpeg" },
-          quality: { type: "number", default: 70 },
-          tab_id: { type: "number" },
-        },
-      },
-    },
+    // screenshot is registered below (line ~1836, pre-existing).
+    // Removed the duplicate SPEC registration here per round-4a review R3.
     {
       name: "get_url",
       description: "🔗 Return the current URL of the active (or given) tab. ab agent_browser_get_url.",
@@ -2287,9 +2275,9 @@ async function handleMCPRequest(message) {
         ensureNetListener();
         result = { ok: true, started: true };
         break;
-      case "wait_for_download":
-        result = await waitForDownload(params);
-        break;
+      // wait_for_download handled by the pre-existing case below
+      // (richer schema {timeout_ms, since_ms}). Removed the duplicate
+      // case here per round-4a review R2.
       case "frame_switch":
         result = await frameSwitch(params);
         break;
@@ -2402,9 +2390,9 @@ async function handleMCPRequest(message) {
       case "wait_ms":
         result = await sendToContentScript('wait_ms', params, params.tab_id);
         break;
-      case "wait_for_selector":
-        result = await sendToContentScript('wait_for_selector', params, params.tab_id);
-        break;
+      // wait_for_selector handled by the pre-existing power-tool case
+      // below (waitForSelector(params)). Removed the duplicate case here
+      // per round-4a review R1.
       case "wait_for_text":
         result = await sendToContentScript('wait_for_text', params, params.tab_id);
         break;
@@ -2423,9 +2411,8 @@ async function handleMCPRequest(message) {
       case "scroll":
         result = await sendToContentScript('scroll', params, params.tab_id);
         break;
-      case "screenshot":
-        result = await captureScreenshot(params);
-        break;
+      // screenshot handled by the pre-existing case below (same fn).
+      // Removed the duplicate case here per round-4a review R3.
       case "get_url":
         result = await tabGetField(params.tab_id, "url");
         break;
@@ -2840,14 +2827,14 @@ async function _runInAllFrames(tabId, payload) {
 }
 
 async function evaluateJs(params) {
-  // MV3 page CSP forbids constructing a function from a string. Without
-  // CSP bypass via chrome.debugger, we can't honor arbitrary JS in the
-  // page world. Tell the caller to use dom_query / dom_query_all /
-  // dispatch_keys instead.
-  return {
-    success: false,
-    error: "evaluate_js requires Function-from-string, which MV3 + page CSP forbid. Use browser_dom_query / browser_dom_query_all / browser_dispatch_keys / browser_wait_for_selector for DOM operations."
-  };
+  // Legacy alias. The original implementation refused to run because
+  // MV3 + content-script CSP forbid Function-from-string. The newer
+  // `eval` op uses chrome.scripting.executeScript MAIN world which DOES
+  // work, so route here. SPEC parity + round-4a review D1.
+  const r = await pageEval({ script: params.script || params.code || "", tab_id: params.tab_id });
+  // Preserve the legacy {success} envelope for any caller still
+  // checking that field.
+  return { success: !!r?.ok, ...r };
 }
 
 async function domQuery(params) {
@@ -2884,7 +2871,9 @@ async function waitForSelector(params) {
   const result = await _runInMain(tabId, {
     op: 'wait_for_selector',
     selector: params.selector,
-    timeoutMs: params.timeout_ms || 8000,
+    // Accept both `timeout_ms` (legacy) and `timeout` (SPEC) so the
+    // bench fixtures keep working after round-4a review R1 dedup.
+    timeoutMs: params.timeout_ms || params.timeout || 8000,
     requireVisible: params.visible !== false,
   });
   return { success: true, ...result };
@@ -3699,26 +3688,9 @@ async function waitForTabLoad(params) {
 }
 
 // SPEC ab cookies_* — chrome.cookies API.
-// SPEC ab wait_for_download — listen until the next download completes.
-async function waitForDownload(params) {
-  const timeout = params.timeout || 30000;
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => {
-      chrome.downloads.onChanged.removeListener(handler);
-      reject(new Error("wait_for_download: timed out after " + timeout + "ms"));
-    }, timeout);
-    function handler(delta) {
-      if (delta.state && delta.state.current === "complete") {
-        clearTimeout(t);
-        chrome.downloads.onChanged.removeListener(handler);
-        chrome.downloads.search({ id: delta.id }).then((items) => {
-          resolve({ ok: true, download_id: delta.id, item: items[0] || null });
-        });
-      }
-    }
-    chrome.downloads.onChanged.addListener(handler);
-  });
-}
+// (waitForDownload defined above ~L3230 with the richer pre-existing
+// {timeout_ms, since_ms} schema; the duplicate SPEC variant was removed
+// per round-4a review R2.)
 
 // SPEC ab set_offline — CDP Network override.
 async function cdpSetOffline(params) {

@@ -12,6 +12,13 @@
 
 (function (globalRoot, moduleRef) {
 
+// Idempotence guard for re-injection (Firefox SPA, content-script
+// dynamic re-load). The module is pure today, but a future state
+// addition would silently double-bind without this.
+if (moduleRef === null && globalRoot && globalRoot.OpenDiaSnapshot) {
+  return;
+}
+
 const ACTIONABLE_TAGS = new Set([
   "a", "button", "input", "textarea", "select", "label",
   "summary", "details",

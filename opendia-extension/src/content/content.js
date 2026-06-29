@@ -789,6 +789,10 @@ class BrowserAutomation {
             // Cap at 1000 entries to bound memory in long-running agent
             // sessions where find/find_by_* may be called repeatedly.
             if (table.length >= 1000) table.length = 0;
+            // Stamp the URL so resolveRef's stale-page guard covers @find
+            // too (otherwise an SPA route change between find and click
+            // leaks past the URL check).
+            globalThis.__openDiaSnapshotUrl = window.location.href;
             const ref = "@find" + table.length;
             table.push(match);
             result = { ok: true, ref, selector: sel, tag: match.tagName ? match.tagName.toLowerCase() : null };
@@ -924,6 +928,10 @@ class BrowserAutomation {
             // Cap at 1000 entries to bound memory in long-running agent
             // sessions where find/find_by_* may be called repeatedly.
             if (table.length >= 1000) table.length = 0;
+            // Stamp the URL so resolveRef's stale-page guard covers @find
+            // too (otherwise an SPA route change between find and click
+            // leaks past the URL check).
+            globalThis.__openDiaSnapshotUrl = window.location.href;
             const ref = "@find" + table.length;
             table.push(match);
             result = {
