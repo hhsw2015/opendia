@@ -301,6 +301,38 @@ class BrowserAutomation {
           // Health check for background tab content script readiness
           result = { status: "ready", timestamp: Date.now(), url: window.location.href };
           break;
+        case "diff_snapshot":
+          // SPEC §4 diff_snapshot — re-render and diff against the last
+          // text-form snapshot stashed on globalThis.__openDiaSnapshotText.
+          // Cheap: returns just the line-level added/removed/changed list.
+          {
+            if (!globalThis.OpenDiaSnapshot) throw new Error("snapshot module not loaded");
+            const fresh = globalThis.OpenDiaSnapshot.compactSnapshot(document.body, {
+              interactiveOnly: !!(data && data.interactive_only),
+              maxNodes: (data && data.max_nodes) || 400,
+              source_id: window.location.href,
+              recordElements: true,
+            });
+            const prevText = globalThis.__openDiaSnapshotText || "";
+            const oldLines = prevText.split("\n");
+            const newLines = fresh.text.split("\n");
+            const oldSet = new Set(oldLines);
+            const newSet = new Set(newLines);
+            const added = newLines.filter((l) => !oldSet.has(l));
+            const removed = oldLines.filter((l) => !newSet.has(l));
+            // Persist new state for the next diff.
+            globalThis.__openDiaSnapshotRefs = fresh._elements || [];
+            globalThis.__openDiaSnapshotText = fresh.text;
+            delete fresh._elements;
+            result = {
+              schema_version: "1",
+              source: fresh.source,
+              added,
+              removed,
+              ref_count: Object.keys(fresh.ref_map).length,
+            };
+          }
+          break;
         case "snapshot":
           // SPEC §4.1 browser_snapshot — compact a11y/DOM tree + ref map.
           // snapshot.js is loaded ahead of content.js by the manifest and
@@ -319,6 +351,7 @@ class BrowserAutomation {
             // can resolve @refN without re-walking. Wire-shape result
             // strips the elements array; SPEC §4.1 stays pure JSON.
             globalThis.__openDiaSnapshotRefs = snap._elements || [];
+            globalThis.__openDiaSnapshotText = snap.text;
             delete snap._elements;
             result = snap;
           }
@@ -362,6 +395,53 @@ class BrowserAutomation {
             el.dispatchEvent(new Event("input", { bubbles: true }));
             el.dispatchEvent(new Event("change", { bubbles: true }));
             result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "get_box":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_box");
+            const r = el.getBoundingClientRect();
+            result = { ok: true, ref: data.ref, x: r.left, y: r.top, width: r.width, height: r.height };
+          }
+          break;
+        case "get_styles":
+          // Computed styles. Verbose; cap to {properties:[…]} when given,
+          // otherwise return the SPEC §2.3 short list.
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "get_styles");
+            const cs = window.getComputedStyle(el);
+            const props = (data && data.properties && data.properties.length)
+              ? data.properties
+              : ["display", "visibility", "opacity", "color", "background-color", "font-size", "font-weight"];
+            const styles = {};
+            for (const p of props) styles[p] = cs.getPropertyValue(p);
+            result = { ok: true, ref: data.ref, styles };
+          }
+          break;
+        case "get_count":
+          {
+            const sel = data && data.selector;
+            if (!sel) throw new Error("get_count: selector required");
+            result = { ok: true, selector: sel, count: document.querySelectorAll(sel).length };
+          }
+          break;
+        case "tap":
+          // Touch tap at viewport (x, y).
+          {
+            const x = (data && data.x) ?? 0;
+            const y = (data && data.y) ?? 0;
+            const target = document.elementFromPoint(x, y) || document.body;
+            const t = (type) => new TouchEvent(type, {
+              bubbles: true, cancelable: true,
+              touches: type === "touchend" ? [] : [new Touch({ identifier: 0, target, clientX: x, clientY: y })],
+              changedTouches: [new Touch({ identifier: 0, target, clientX: x, clientY: y })],
+            });
+            target.dispatchEvent(t("touchstart"));
+            target.dispatchEvent(t("touchend"));
+            target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            result = { ok: true, x, y };
           }
           break;
         case "find":

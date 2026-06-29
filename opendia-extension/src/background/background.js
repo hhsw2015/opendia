@@ -556,6 +556,36 @@ function getAvailableTools() {
       },
     },
     {
+      name: "diff_snapshot",
+      description: "📐Δ Compute the difference vs the last snapshot. Returns {added, removed} lines + new ref_count. Cheap; prefer this when monitoring an SPA route change.",
+      inputSchema: { type: "object", properties: { interactive_only: { type: "boolean" }, max_nodes: { type: "number" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "get_box",
+      description: "📦 getBoundingClientRect of @refN.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "get_styles",
+      description: "🎨 getComputedStyle of @refN. Pass properties[] to limit; default returns common visual props.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, properties: { type: "array", items: { type: "string" } }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "get_count",
+      description: "🔢 querySelectorAll().length for a CSS selector.",
+      inputSchema: { type: "object", properties: { selector: { type: "string" }, tab_id: { type: "number" } }, required: ["selector"] },
+    },
+    {
+      name: "tap",
+      description: "👇 Touch tap at viewport (x, y).",
+      inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, tab_id: { type: "number" } }, required: ["x", "y"] },
+    },
+    {
+      name: "device",
+      description: "📱 Apply a named device preset (iphone15 | pixel7 | ipad | desktop1080). Wraps set_viewport.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, tab_id: { type: "number" } }, required: ["name"] },
+    },
+    {
       name: "find",
       description: "🔎 CSS-selector single-element find; returns a fresh @refN.",
       inputSchema: { type: "object", properties: { selector: { type: "string" }, tab_id: { type: "number" } }, required: ["selector"] },
@@ -1887,6 +1917,11 @@ async function handleMCPRequest(message) {
       case "find_by_placeholder":
       case "find_by_testid":
       case "find":
+      case "diff_snapshot":
+      case "get_box":
+      case "get_styles":
+      case "get_count":
+      case "tap":
       case "mouse_down":
       case "mouse_up":
       case "mouse_move":
@@ -1901,6 +1936,9 @@ async function handleMCPRequest(message) {
         break;
       case "set_viewport":
         result = await cdpSetViewport(params);
+        break;
+      case "device":
+        result = await cdpSetViewport(devicePreset(params.name, params.tab_id));
         break;
       case "set_geo":
         result = await cdpSetGeo(params);
@@ -3223,6 +3261,19 @@ async function prearmDialog(tabId, action, promptText) {
 // CDP-based emulation overrides — re-using the existing _cdpSend helper
 // (search for it elsewhere in this file). Each override persists until
 // the tab is closed or a same-domain CDP clear call is issued.
+// SPEC ab agent_browser_device — small named-preset table.
+function devicePreset(name, tab_id) {
+  const presets = {
+    iphone15:   { width: 393, height: 852, mobile: true,  deviceScaleFactor: 3 },
+    pixel7:     { width: 412, height: 915, mobile: true,  deviceScaleFactor: 2.625 },
+    ipad:       { width: 820, height: 1180, mobile: true, deviceScaleFactor: 2 },
+    desktop1080:{ width: 1920, height: 1080, mobile: false, deviceScaleFactor: 1 },
+  };
+  const preset = presets[name];
+  if (!preset) throw new Error("device: unknown preset \"" + name + "\"");
+  return Object.assign({}, preset, { tab_id });
+}
+
 async function cdpSetViewport(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("set_viewport: no active tab");
