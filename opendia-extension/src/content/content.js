@@ -364,31 +364,122 @@ class BrowserAutomation {
           }
           break;
         case "react_tree":
-        case "react_inspect":
-        case "react_renders_start":
-        case "react_renders_stop":
-        case "react_suspense":
-          // Best-effort React DevTools probe via the global hook the
-          // extension installs on the page. When absent, return a soft
-          // ok:false so the agent can recognise the page is not React.
+          // Walk fiber tree from each root; emit compact node list.
           {
             const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
             if (!hook || !hook.renderers || hook.renderers.size === 0) {
               result = { ok: false, action, reason: "react-devtools hook absent — page not React or DevTools not attached" };
               break;
             }
-            // We can't faithfully implement the full ab React surface
-            // without a substantial port; for parity we flag the row as
-            // implemented and surface what we can.
             const rendererIds = Array.from(hook.renderers.keys());
-            const fiberRoots = Array.from(hook.getFiberRoots ? hook.getFiberRoots(rendererIds[0]) || [] : []);
+            const limit = (data && data.max_nodes) || 200;
+            const out = [];
+            for (const rid of rendererIds) {
+              const roots = hook.getFiberRoots ? Array.from(hook.getFiberRoots(rid) || []) : [];
+              for (const root of roots) {
+                const start = root.current || root;
+                const stack = [{ fiber: start, depth: 0 }];
+                while (stack.length && out.length < limit) {
+                  const { fiber, depth } = stack.pop();
+                  if (!fiber) continue;
+                  const tag = fiber.type;
+                  const name = typeof tag === "string" ? tag :
+                               tag && (tag.displayName || tag.name) ? (tag.displayName || tag.name) :
+                               null;
+                  if (name) out.push({ depth, name, key: fiber.key ?? null });
+                  if (fiber.sibling) stack.push({ fiber: fiber.sibling, depth });
+                  if (fiber.child) stack.push({ fiber: fiber.child, depth: depth + 1 });
+                }
+              }
+            }
+            result = { ok: true, action: "react_tree", nodes: out, truncated: out.length >= limit };
+          }
+          break;
+        case "react_inspect":
+          // Map @refN DOM element back to nearest fiber; return component name + props keys.
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "react_inspect");
+            const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"));
+            if (!key) {
+              result = { ok: false, ref: data.ref, reason: "no fiber on element — page not React" };
+              break;
+            }
+            let fiber = el[key];
+            const ancestors = [];
+            for (let walker = fiber; walker && ancestors.length < 5; walker = walker.return) {
+              const t = walker.type;
+              const n = typeof t === "string" ? t : t && (t.displayName || t.name);
+              if (n) ancestors.push(n);
+            }
+            const props = fiber.memoizedProps || fiber.pendingProps || {};
             result = {
               ok: true,
-              action,
-              renderer_count: rendererIds.length,
-              root_count: fiberRoots.length,
-              note: "renderer/root counts only; full tree/inspect/profiler ports follow in a future PR",
+              ref: data.ref,
+              component: ancestors[0] || null,
+              ancestors,
+              props_keys: Object.keys(props || {}),
+              has_state: !!fiber.memoizedState,
             };
+          }
+          break;
+        case "react_renders_start":
+        case "react_renders_stop":
+          // Hook commit-phase callbacks for render counts.
+          {
+            const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+            if (!hook) { result = { ok: false, action, reason: "react-devtools hook absent" }; break; }
+            if (action === "react_renders_start") {
+              if (!globalThis.__openDiaReactRenders) {
+                globalThis.__openDiaReactRenders = { counts: new Map(), origOnCommit: hook.onCommitFiberRoot };
+                hook.onCommitFiberRoot = function (rendererID, root) {
+                  try {
+                    const fiber = root && (root.current || root);
+                    const t = fiber && fiber.type;
+                    const n = typeof t === "string" ? t : t && (t.displayName || t.name);
+                    if (n) globalThis.__openDiaReactRenders.counts.set(n, (globalThis.__openDiaReactRenders.counts.get(n) || 0) + 1);
+                  } catch {}
+                  if (globalThis.__openDiaReactRenders.origOnCommit) return globalThis.__openDiaReactRenders.origOnCommit.apply(this, arguments);
+                };
+              }
+              result = { ok: true, action: "react_renders_start" };
+            } else {
+              const state = globalThis.__openDiaReactRenders;
+              if (!state) { result = { ok: false, action, reason: "react_renders_start was not called" }; break; }
+              hook.onCommitFiberRoot = state.origOnCommit;
+              const counts = Object.fromEntries(state.counts);
+              delete globalThis.__openDiaReactRenders;
+              result = { ok: true, action: "react_renders_stop", counts };
+            }
+          }
+          break;
+        case "react_suspense":
+          // Walk fibers, count Suspense boundaries by state.
+          {
+            const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+            if (!hook || !hook.renderers || hook.renderers.size === 0) {
+              result = { ok: false, action, reason: "react-devtools hook absent" };
+              break;
+            }
+            let pending = 0, resolved = 0;
+            for (const rid of hook.renderers.keys()) {
+              const roots = hook.getFiberRoots ? Array.from(hook.getFiberRoots(rid) || []) : [];
+              for (const root of roots) {
+                const stack = [root.current || root];
+                while (stack.length) {
+                  const f = stack.pop();
+                  if (!f) continue;
+                  // SuspenseComponent tag = 13, OffscreenComponent tag = 22 in modern React
+                  if (f.tag === 13) {
+                    if (f.memoizedState) pending += 1;
+                    else resolved += 1;
+                  }
+                  if (f.sibling) stack.push(f.sibling);
+                  if (f.child) stack.push(f.child);
+                }
+              }
+            }
+            result = { ok: true, action: "react_suspense", pending, resolved };
           }
           break;
         case "errors":
@@ -433,11 +524,6 @@ class BrowserAutomation {
             setTimeout(() => { el.style.outline = prev; }, ms);
             result = { ok: true, ref: data.ref, color, duration_ms: ms };
           }
-          break;
-        case "remove_init_script":
-          // We never set init scripts (those would need add_init_script's
-          // CDP path). Returning ok keeps the parity surface honest.
-          result = { ok: true, removed: 0, note: "no init scripts active" };
           break;
         case "frame_main":
           // We always run in the top frame's content script; report it.

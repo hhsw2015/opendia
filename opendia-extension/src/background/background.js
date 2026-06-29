@@ -742,27 +742,27 @@ function getAvailableTools() {
     },
     {
       name: "react_tree",
-      description: "⚛️ Best-effort React DevTools tree summary (renderer/root counts).",
-      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+      description: "⚛️ Walk the React fiber tree from each root; emit compact node list (depth+name+key). Capped at max_nodes (default 200).",
+      inputSchema: { type: "object", properties: { max_nodes: { type: "number", default: 200 }, tab_id: { type: "number" } } },
     },
     {
       name: "react_inspect",
-      description: "⚛️ Best-effort React DevTools inspect probe.",
-      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } } },
+      description: "⚛️ Resolve @refN to its nearest React fiber; return component name, ancestor chain, prop keys, has_state.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
     },
     {
       name: "react_renders_start",
-      description: "⚛️ Stub for ab React renders profiler start; reports hook presence only.",
+      description: "⚛️ Hook onCommitFiberRoot to count renders per component. Pair with react_renders_stop.",
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
     },
     {
       name: "react_renders_stop",
-      description: "⚛️ Stub for ab React renders profiler stop.",
+      description: "⚛️ Stop the renders hook and return per-component render counts.",
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
     },
     {
       name: "react_suspense",
-      description: "⚛️ Stub for ab React suspense probe.",
+      description: "⚛️ Walk fibers and count Suspense boundaries by state {pending, resolved}.",
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
     },
     {
@@ -796,9 +796,14 @@ function getAvailableTools() {
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
     },
     {
+      name: "add_init_script",
+      description: "🌱 DANGEROUS: install a script via CDP Page.addScriptToEvaluateOnNewDocument; runs on every navigation. Returns the identifier; pair with remove_init_script.",
+      inputSchema: { type: "object", properties: { script: { type: "string" }, tab_id: { type: "number" } }, required: ["script"] },
+    },
+    {
       name: "remove_init_script",
-      description: "🧹 Reset any add_init_script overrides. No-op when no init scripts were set.",
-      inputSchema: { type: "object", properties: { id: { type: "string" }, tab_id: { type: "number" } } },
+      description: "🧹 Remove an init script previously installed via add_init_script. Pass the identifier returned at install time.",
+      inputSchema: { type: "object", properties: { id: { type: "string" }, tab_id: { type: "number" } }, required: ["id"] },
     },
     {
       name: "diff_screenshot",
@@ -2209,7 +2214,6 @@ async function handleMCPRequest(message) {
       case "find":
       case "errors":
       case "highlight":
-      case "remove_init_script":
       case "frame_main":
       case "react_tree":
       case "react_inspect":
@@ -2287,7 +2291,13 @@ async function handleMCPRequest(message) {
         result = await waitForDownload(params);
         break;
       case "frame_switch":
-        result = { ok: false, note: "frame_switch: not yet wired in WS bridge", match: params.match };
+        result = await frameSwitch(params);
+        break;
+      case "add_init_script":
+        result = await addInitScript(params);
+        break;
+      case "remove_init_script":
+        result = await removeInitScript(params);
         break;
       case "window_new":
         result = await chrome.windows.create({ url: params.url, focused: params.focused !== false })
@@ -3047,6 +3057,33 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       source: params.entry?.source,
     });
     if (st.console.length > 2000) st.console.splice(0, st.console.length - 2000);
+  } else if (method === 'Fetch.requestPaused') {
+    // SPEC ab network_route — fulfill or continue based on per-tab route table.
+    const route = __routeState.get(source.tabId);
+    if (!route) {
+      _cdpSend(source.tabId, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {});
+      return;
+    }
+    const url = params.request?.url || '';
+    const matches = route.pattern && (
+      route.pattern === '*' ||
+      url.includes(route.pattern.replace(/\*/g, '')) ||
+      (function() { try { return new RegExp(route.pattern).test(url); } catch { return false; } })()
+    );
+    if (!matches) {
+      _cdpSend(source.tabId, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {});
+      return;
+    }
+    const resp = route.response || {};
+    const body = btoa(unescape(encodeURIComponent(resp.body || '')));
+    const headers = Object.entries(resp.headers || { 'content-type': 'text/plain' })
+      .map(([name, value]) => ({ name, value: String(value) }));
+    _cdpSend(source.tabId, 'Fetch.fulfillRequest', {
+      requestId: params.requestId,
+      responseCode: resp.status || 200,
+      responseHeaders: headers,
+      body,
+    }).catch(() => {});
   }
 });
 
@@ -3788,6 +3825,43 @@ async function diffScreenshot(params) {
   };
 }
 
+// SPEC ab frame_switch — list frames in tab; pick by URL substring or id.
+async function frameSwitch(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("frame_switch: no active tab");
+  const frames = await new Promise((resolve, reject) =>
+    chrome.webNavigation.getAllFrames({ tabId: id }, (f) => f ? resolve(f) : reject(new Error("frame_switch: getAllFrames failed"))));
+  let target = null;
+  if (params.frame_id !== undefined) {
+    target = frames.find((f) => f.frameId === params.frame_id) || null;
+  } else if (params.match) {
+    target = frames.find((f) => (f.url || "").includes(params.match)) || null;
+  } else {
+    target = frames.find((f) => f.parentFrameId === -1) || null;
+  }
+  if (!target) {
+    return { ok: false, error: "frame_switch: no frame matched", frames: frames.map((f) => ({ id: f.frameId, url: f.url, parent: f.parentFrameId })) };
+  }
+  return { ok: true, tab_id: id, frame: { id: target.frameId, url: target.url, parent: target.parentFrameId },
+           note: "WS pipe still targets the top frame; subsequent content-script ops run there. CDP-level frame routing is a future PR." };
+}
+
+// SPEC ab add_init_script / remove_init_script — CDP Page.addScript...
+async function addInitScript(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("add_init_script: no active tab");
+  await _cdpSend(id, "Page.enable", {});
+  const r = await _cdpSend(id, "Page.addScriptToEvaluateOnNewDocument", { source: params.script || "" });
+  return { ok: true, tab_id: id, id: r?.identifier || null };
+}
+async function removeInitScript(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("remove_init_script: no active tab");
+  if (!params.id) throw new Error("remove_init_script: id required");
+  await _cdpSend(id, "Page.removeScriptToEvaluateOnNewDocument", { identifier: params.id });
+  return { ok: true, tab_id: id, id: params.id };
+}
+
 // SPEC ab cookies_set — DANGEROUS_TOOLS, user-approved. chrome.cookies.set.
 async function cookiesSet(params) {
   const opts = { name: params.name, value: String(params.value ?? "") };
@@ -3866,7 +3940,7 @@ async function cdpRouteInstall(params) {
     patterns: [{ urlPattern: params.pattern, requestStage: "Request" }],
   });
   __routeState.set(id, params);
-  return { ok: true, tab_id: id, pattern: params.pattern, note: "Fetch.requestPaused events handled out-of-band" };
+  return { ok: true, tab_id: id, pattern: params.pattern };
 }
 async function cdpRouteClear(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
