@@ -556,6 +556,16 @@ function getAvailableTools() {
       },
     },
     {
+      name: "get_url",
+      description: "🔗 Return the current URL of the active (or given) tab. ab agent_browser_get_url.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "get_title",
+      description: "📰 Return the document title of the active (or given) tab. ab agent_browser_get_title.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
       name: "back",
       description: "↩️ Navigate the tab one step back in history. ab agent_browser_back.",
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
@@ -1599,6 +1609,12 @@ async function handleMCPRequest(message) {
       case "open":
         // SPEC alias for page_navigate; matches ab agent_browser_open.
         result = await navigateToUrl(params.url, params.wait_for, params.timeout);
+        break;
+      case "get_url":
+        result = await tabGetField(params.tab_id, "url");
+        break;
+      case "get_title":
+        result = await tabGetField(params.tab_id, "title");
         break;
       case "click":
         // SPEC ab agent_browser_click — @refN-based.
@@ -2793,6 +2809,13 @@ async function tabHistoryNavigate(direction, tabId) {
     await chrome.tabs.goForward(resolved);
   }
   return { ok: true, direction, tab_id: resolved };
+}
+
+async function tabGetField(tabId, field) {
+  const resolved = tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!resolved) throw new Error(field + ": no active tab");
+  const tab = await chrome.tabs.get(resolved);
+  return { ok: true, tab_id: resolved, [field]: tab[field] || "" };
 }
 
 async function tabReload(tabId, bypassCache) {
