@@ -478,6 +478,685 @@ function getAvailableTools() {
     
     // Page Analysis Tools
     {
+      // SPEC §4.1 — the compact a11y/DOM snapshot + ref map. Prereq for
+      // every ref-dependent ab parity tool (click/fill/hover/...).
+      // Cheap: prefer this over page_extract_content for navigation use.
+      name: "snapshot",
+      description: "📐 SPEC §4.1: compact a11y/DOM snapshot with @refN anchors. Prefer this for navigation discovery; pair @refN with the matching click/fill tool. Cheap; returns ~100-400 nodes.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          interactive_only: {
+            type: "boolean",
+            default: false,
+            description: "If true, only nodes with an actionable role/tag/onclick/tabindex are listed.",
+          },
+          max_nodes: {
+            type: "number",
+            default: 400,
+            description: "Soft cap on emitted nodes; sets truncated=true if exceeded.",
+          },
+          tab_id: { type: "number", description: "Optional tab id; defaults to active tab." },
+        },
+      },
+    },
+    {
+      // SPEC ab agent_browser_open. Alias for page_navigate kept for
+      // parity-matrix coverage; behaviour is identical.
+      name: "open",
+      description: "🧭 Navigate the active (or given) tab to a URL. SPEC alias for page_navigate; matches ab agent_browser_open.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Target URL (http(s)/file/data)." },
+          wait_for: { type: "string", description: "Optional CSS selector to await." },
+          timeout: { type: "number", description: "Wait timeout in ms (default 10000)." },
+          tab_id: { type: "number" },
+        },
+        required: ["url"],
+      },
+    },
+    {
+      // SPEC ab agent_browser_click — uses @refN from a prior snapshot.
+      name: "click",
+      description: "🖱️ Click an element by @refN from the last snapshot. Call snapshot first; pair the @refN you found with this tool.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ref: { type: "string", description: "@refN identifier from snapshot.ref_map." },
+          tab_id: { type: "number" },
+        },
+        required: ["ref"],
+      },
+    },
+    {
+      name: "fill",
+      description: "✏️ Set the value of an input/textarea/contenteditable by @refN. Fires input + change events. Call snapshot first.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ref: { type: "string" },
+          value: { type: "string" },
+          tab_id: { type: "number" },
+        },
+        required: ["ref", "value"],
+      },
+    },
+    {
+      name: "type",
+      description: "⌨️ Type text into a focused element by @refN, character-by-character (key events fire). Use fill for the cheaper bulk path; use type when the page listens for keydown/keypress.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ref: { type: "string" },
+          text: { type: "string" },
+          tab_id: { type: "number" },
+        },
+        required: ["ref", "text"],
+      },
+    },
+    {
+      name: "storage_set",
+      description: "💾✏️ DANGEROUS: write one localStorage/sessionStorage key. {key, value, kind: \"local\"|\"session\"}.",
+      inputSchema: { type: "object", properties: { key: { type: "string" }, value: {}, kind: { type: "string", enum: ["local", "session"], default: "local" }, tab_id: { type: "number" } }, required: ["key"] },
+    },
+    {
+      name: "storage_clear",
+      description: "💾🗑️ DANGEROUS: clear all localStorage or sessionStorage entries.",
+      inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["local", "session"], default: "local" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "cookies_set",
+      description: "🍪✏️ DANGEROUS: set a cookie via chrome.cookies.set. Pass {name, value, url|domain, path?, expirationDate?, secure?, httpOnly?, sameSite?}.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, value: { type: "string" }, url: { type: "string" }, domain: { type: "string" }, path: { type: "string" }, expirationDate: { type: "number" }, secure: { type: "boolean" }, httpOnly: { type: "boolean" }, sameSite: { type: "string" } }, required: ["name", "value"] },
+    },
+    {
+      name: "cookies_set_curl",
+      description: "🍪✏️ DANGEROUS: parse a curl-style \"Set-Cookie:\" header and set the resulting cookies for the active tab's URL.",
+      inputSchema: { type: "object", properties: { header: { type: "string" }, url: { type: "string" } }, required: ["header"] },
+    },
+    {
+      name: "set_headers",
+      description: "📋 DANGEROUS: override extra HTTP headers for the tab via CDP Network.setExtraHTTPHeaders.",
+      inputSchema: { type: "object", properties: { headers: { type: "object" }, tab_id: { type: "number" } }, required: ["headers"] },
+    },
+    {
+      name: "set_credentials",
+      description: "🔐 DANGEROUS: set HTTP Basic auth via CDP Network.setExtraHTTPHeaders Authorization.",
+      inputSchema: { type: "object", properties: { username: { type: "string" }, password: { type: "string" }, tab_id: { type: "number" } }, required: ["username", "password"] },
+    },
+    {
+      name: "network_request",
+      description: "🌐 DANGEROUS: fetch() from background context (no CORS). Pass {url, method?, headers?, body?, credentials?}.",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, method: { type: "string" }, headers: { type: "object" }, body: { type: "string" }, credentials: { type: "string" } }, required: ["url"] },
+    },
+    {
+      name: "network_route",
+      description: "🌐 DANGEROUS: install a CDP Fetch.enable + Fetch.fulfillRequest interceptor. {pattern, response: {body, status?, headers?}}.",
+      inputSchema: { type: "object", properties: { pattern: { type: "string" }, response: { type: "object" }, tab_id: { type: "number" } }, required: ["pattern", "response"] },
+    },
+    {
+      name: "network_unroute",
+      description: "🌐 DANGEROUS: clear CDP Fetch.disable for the tab.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "auth_save",
+      description: "🔐 DANGEROUS: persist {name, kind, payload} to chrome.storage.local under key auth/<name>.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, kind: { type: "string" }, payload: { type: "object" } }, required: ["name", "kind", "payload"] },
+    },
+    {
+      name: "auth_login",
+      description: "🔐 DANGEROUS: load a saved auth bundle and apply it (cookies_set + headers).",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, tab_id: { type: "number" } }, required: ["name"] },
+    },
+    {
+      name: "auth_show",
+      description: "🔐 DANGEROUS: read one saved auth bundle.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    },
+    {
+      name: "auth_list",
+      description: "🔐 List saved auth bundle names.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "auth_delete",
+      description: "🔐 DANGEROUS: delete one saved auth bundle.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    },
+    {
+      name: "state_save",
+      description: "💼 DANGEROUS: snapshot cookies+localStorage+sessionStorage for the active URL into chrome.storage.local under state/<name>.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, tab_id: { type: "number" } }, required: ["name"] },
+    },
+    {
+      name: "state_load",
+      description: "💼 DANGEROUS: restore one saved state snapshot for the active URL.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, tab_id: { type: "number" } }, required: ["name"] },
+    },
+    {
+      name: "state_show",
+      description: "💼 Read one saved state snapshot.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    },
+    {
+      name: "state_list",
+      description: "💼 List saved state names.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "state_clear",
+      description: "💼 DANGEROUS: delete one saved state snapshot.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    },
+    {
+      name: "state_clean",
+      description: "💼 DANGEROUS: delete ALL saved state snapshots.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "state_rename",
+      description: "💼 Rename a saved state snapshot.",
+      inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, required: ["from", "to"] },
+    },
+    {
+      name: "upload",
+      description: "📤 DANGEROUS: attach files[] (each {name, mime, base64}) to an <input type=file> by @refN.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, files: { type: "array", items: { type: "object" } }, tab_id: { type: "number" } }, required: ["ref", "files"] },
+    },
+    {
+      name: "eval",
+      description: "⚠️ DANGEROUS: execute arbitrary JavaScript in the page's MAIN world via chrome.scripting.executeScript. Returns the function's return value (JSON-serializable). Use this in preference to the legacy `evaluate_js` (which is now an alias).",
+      inputSchema: { type: "object", properties: { script: { type: "string" }, tab_id: { type: "number" } }, required: ["script"] },
+    },
+    {
+      name: "storage_get",
+      description: "💾 Read one localStorage/sessionStorage key. Pass {key, kind: \"local\"|\"session\"}.",
+      inputSchema: { type: "object", properties: { key: { type: "string" }, kind: { type: "string", enum: ["local", "session"], default: "local" }, tab_id: { type: "number" } }, required: ["key"] },
+    },
+    {
+      name: "dialog_status",
+      description: "❓ Best-effort armed-dialog status (always ok:false from content script — see field 'note').",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    // wait_for_download is registered below (line ~1947, pre-existing
+    // power tool with richer {timeout_ms, since_ms} schema). Removed
+    // the duplicate SPEC registration here per round-4a review R2.
+    {
+      name: "frame_switch",
+      description: "🖼️ Switch the WS pipe's content-script target to a frame by URL substring or ID. No-op when not yet supported by the WS bridge.",
+      inputSchema: { type: "object", properties: { match: { type: "string" }, frame_id: { type: "number" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "window_new",
+      description: "🪟 Create a new browser window (chrome.windows.create). Pass {url} optional.",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, focused: { type: "boolean", default: true } } },
+    },
+    {
+      name: "set_offline",
+      description: "📵 Toggle offline mode via CDP Network.emulateNetworkConditions. Pass {offline:bool}.",
+      inputSchema: { type: "object", properties: { offline: { type: "boolean" }, tab_id: { type: "number" } }, required: ["offline"] },
+    },
+    {
+      name: "profiler_start",
+      description: "⏱️ Start a JS profile via CDP Profiler.enable + Profiler.start.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "profiler_stop",
+      description: "⏱️ Stop the JS profile and return the CPU profile JSON via CDP Profiler.stop.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "network_har_start",
+      description: "🌐⏺️ Begin per-tab HAR-style capture (uses webRequest under the hood).",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "network_har_stop",
+      description: "🌐⏹️ Stop and return the captured request log.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "trace_start",
+      description: "🔬 Start a CDP Tracing.start session.",
+      inputSchema: { type: "object", properties: { categories: { type: "array", items: { type: "string" } }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "trace_stop",
+      description: "🔬 Stop CDP tracing and return the collected events.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "pdf",
+      description: "📄 Print the active tab to a base64 PDF via CDP Page.printToPDF.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "network_requests",
+      description: "🌐 Return the buffered list of network requests for the active tab (last 200). Pass {flush:false} to peek without clearing.",
+      inputSchema: { type: "object", properties: { flush: { type: "boolean", default: true }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "react_tree",
+      description: "⚛️ Walk the React fiber tree from each root; emit compact node list (depth+name+key). Capped at max_nodes (default 200).",
+      inputSchema: { type: "object", properties: { max_nodes: { type: "number", default: 200 }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "react_inspect",
+      description: "⚛️ Resolve @refN to its nearest React fiber; return component name, ancestor chain, prop keys, has_state.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "react_renders_start",
+      description: "⚛️ Hook onCommitFiberRoot to count renders per component. Pair with react_renders_stop.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "react_renders_stop",
+      description: "⚛️ Stop the renders hook and return per-component render counts.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "react_suspense",
+      description: "⚛️ Walk fibers and count Suspense boundaries by state {pending, resolved}.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "deny",
+      description: "❎ Alias for dialog_dismiss — pre-arms the next confirm() to return false.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "diff_url",
+      description: "🌐Δ Return the URL change since the last call (or null).",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "errors",
+      description: "🐞 Return buffered window.onerror / unhandledrejection events from the page (last 200).",
+      inputSchema: { type: "object", properties: { flush: { type: "boolean", default: true }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "download",
+      description: "📥 chrome.downloads.download wrapper. Pass {url, filename?}.",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, filename: { type: "string" } }, required: ["url"] },
+    },
+    {
+      name: "highlight",
+      description: "🎯 Outline @refN with a color for {duration_ms} (default 1500). Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, color: { type: "string" }, duration_ms: { type: "number" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "frame_main",
+      description: "🖼️ Switch context to the top frame (no-op since the WS pipe is already top-frame-bound).",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "add_init_script",
+      description: "🌱 DANGEROUS: install a script via CDP Page.addScriptToEvaluateOnNewDocument; runs on every navigation. Returns the identifier; pair with remove_init_script.",
+      inputSchema: { type: "object", properties: { script: { type: "string" }, tab_id: { type: "number" } }, required: ["script"] },
+    },
+    {
+      name: "remove_init_script",
+      description: "🧹 Remove an init script previously installed via add_init_script. Pass the identifier returned at install time.",
+      inputSchema: { type: "object", properties: { id: { type: "string" }, tab_id: { type: "number" } }, required: ["id"] },
+    },
+    {
+      name: "diff_screenshot",
+      description: "📸Δ Capture viewport, byte-diff against the last screenshot. Returns equal:bool + sizes.",
+      inputSchema: { type: "object", properties: { format: { type: "string", default: "jpeg" }, quality: { type: "number", default: 70 }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "console",
+      description: "📜 Return buffered console.log/warn/error/info/debug messages from the page (last 500). Pass {flush:false} to peek without clearing.",
+      inputSchema: { type: "object", properties: { flush: { type: "boolean", default: true }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "vitals",
+      description: "📊 Snapshot web-vitals (navigation timing, paint, LCP) from PerformanceObserver entries already in memory.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "inspect",
+      description: "🔬 Inspect one element by CSS selector — returns tag, text, rect, attrs.",
+      inputSchema: { type: "object", properties: { selector: { type: "string" }, tab_id: { type: "number" } }, required: ["selector"] },
+    },
+    {
+      name: "wait_for_function",
+      description: "⚠️ DANGEROUS: eval a JS expression in the page's content-script context until it returns truthy (or timeout). Use only when wait_for_selector / wait_for_text don't fit.",
+      inputSchema: { type: "object", properties: { script: { type: "string" }, timeout: { type: "number", default: 10000 }, tab_id: { type: "number" } }, required: ["script"] },
+    },
+    {
+      name: "confirm",
+      description: "✅ Alias for dialog_accept; pre-arms the next confirm() to return true.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "cookies_get",
+      description: "🍪 Read cookies for the current tab's URL via chrome.cookies. Pass {url} to override.",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "cookies_clear",
+      description: "🍪🗑️ Clear all cookies for the current tab's URL (or pass {url}).",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "get_cdp_url",
+      description: "🔌 Return a chrome://inspect-style debuggable URL for the active tab (Chrome-only).",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "diff_snapshot",
+      description: "📐Δ Compute the difference vs the last snapshot. Returns {added, removed} lines + new ref_count. Cheap; prefer this when monitoring an SPA route change.",
+      inputSchema: { type: "object", properties: { interactive_only: { type: "boolean" }, max_nodes: { type: "number" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "get_box",
+      description: "📦 getBoundingClientRect of @refN.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "get_styles",
+      description: "🎨 getComputedStyle of @refN. Pass properties[] to limit; default returns common visual props.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, properties: { type: "array", items: { type: "string" } }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "get_count",
+      description: "🔢 querySelectorAll().length for a CSS selector.",
+      inputSchema: { type: "object", properties: { selector: { type: "string" }, tab_id: { type: "number" } }, required: ["selector"] },
+    },
+    {
+      name: "tap",
+      description: "👇 Touch tap at viewport (x, y).",
+      inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, tab_id: { type: "number" } }, required: ["x", "y"] },
+    },
+    {
+      name: "device",
+      description: "📱 Apply a named device preset (iphone15 | pixel7 | ipad | desktop1080). Wraps set_viewport.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, tab_id: { type: "number" } }, required: ["name"] },
+    },
+    {
+      name: "find",
+      description: "🔎 CSS-selector single-element find; returns a fresh @refN.",
+      inputSchema: { type: "object", properties: { selector: { type: "string" }, tab_id: { type: "number" } }, required: ["selector"] },
+    },
+    {
+      name: "mouse_down",
+      description: "🖱️ Press the mouse button at viewport (x, y).",
+      inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, tab_id: { type: "number" } }, required: ["x", "y"] },
+    },
+    {
+      name: "mouse_up",
+      description: "🖱️ Release the mouse button at viewport (x, y).",
+      inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, tab_id: { type: "number" } }, required: ["x", "y"] },
+    },
+    {
+      name: "mouse_move",
+      description: "🖱️ Move the mouse to viewport (x, y).",
+      inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, tab_id: { type: "number" } }, required: ["x", "y"] },
+    },
+    {
+      name: "mouse_wheel",
+      description: "🖱️ Dispatch a wheel event with deltas (and scrollBy as fallback).",
+      inputSchema: { type: "object", properties: { dx: { type: "number" }, dy: { type: "number" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "keydown",
+      description: "⌨️ Dispatch a keydown on the focused element.",
+      inputSchema: { type: "object", properties: { key: { type: "string" }, tab_id: { type: "number" } }, required: ["key"] },
+    },
+    {
+      name: "keyup",
+      description: "⌨️ Dispatch a keyup on the focused element.",
+      inputSchema: { type: "object", properties: { key: { type: "string" }, tab_id: { type: "number" } }, required: ["key"] },
+    },
+    {
+      name: "keyboard_type",
+      description: "⌨️ Type text into the focused element (per-character key events).",
+      inputSchema: { type: "object", properties: { text: { type: "string" }, tab_id: { type: "number" } }, required: ["text"] },
+    },
+    {
+      name: "keyboard_insert_text",
+      description: "⌨️ Insert text into the focused element (no per-char key events).",
+      inputSchema: { type: "object", properties: { text: { type: "string" }, tab_id: { type: "number" } }, required: ["text"] },
+    },
+    {
+      name: "swipe",
+      description: "📱 Touch swipe from (x1,y1) → (x2,y2).",
+      inputSchema: { type: "object", properties: { x1: { type: "number" }, y1: { type: "number" }, x2: { type: "number" }, y2: { type: "number" }, tab_id: { type: "number" } }, required: ["x1", "y1", "x2", "y2"] },
+    },
+    {
+      name: "pushstate",
+      description: "🛣️ history.pushState passthrough (SPA tests).",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, state: { type: "object" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "set_viewport",
+      description: "📐 Resize viewport via CDP Emulation.setDeviceMetricsOverride. Pass {width, height, mobile?, deviceScaleFactor?}.",
+      inputSchema: { type: "object", properties: { width: { type: "number" }, height: { type: "number" }, mobile: { type: "boolean" }, deviceScaleFactor: { type: "number" }, tab_id: { type: "number" } }, required: ["width", "height"] },
+    },
+    {
+      name: "set_geo",
+      description: "🌐 Override geolocation via CDP Emulation.setGeolocationOverride.",
+      inputSchema: { type: "object", properties: { latitude: { type: "number" }, longitude: { type: "number" }, accuracy: { type: "number" }, tab_id: { type: "number" } }, required: ["latitude", "longitude"] },
+    },
+    {
+      name: "set_media",
+      description: "🎨 Override prefers-color-scheme / media features via CDP Emulation.setEmulatedMedia.",
+      inputSchema: { type: "object", properties: { type: { type: "string" }, features: { type: "array", items: { type: "object" } }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "find_by_role",
+      description: "🔎 Find an element by ARIA role; returns a fresh @refN appended to the live snapshot.",
+      inputSchema: { type: "object", properties: { role: { type: "string" }, query: { type: "string" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "find_by_text",
+      description: "🔎 Find an element by visible text (exact preferred, falls back to substring).",
+      inputSchema: { type: "object", properties: { query: { type: "string" }, tab_id: { type: "number" } }, required: ["query"] },
+    },
+    {
+      name: "find_by_label",
+      description: "🔎 Find an input by its <label> text.",
+      inputSchema: { type: "object", properties: { query: { type: "string" }, tab_id: { type: "number" } }, required: ["query"] },
+    },
+    {
+      name: "find_by_placeholder",
+      description: "🔎 Find an input by its placeholder.",
+      inputSchema: { type: "object", properties: { query: { type: "string" }, tab_id: { type: "number" } }, required: ["query"] },
+    },
+    {
+      name: "find_by_testid",
+      description: "🔎 Find an element by data-testid.",
+      inputSchema: { type: "object", properties: { query: { type: "string" }, tab_id: { type: "number" } }, required: ["query"] },
+    },
+    {
+      name: "dialog_accept",
+      description: "✅ Accept the next browser dialog (alert/confirm/prompt). One-shot; install before triggering.",
+      inputSchema: { type: "object", properties: { text: { type: "string" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "dialog_dismiss",
+      description: "❎ Dismiss the next browser dialog (alert/confirm/prompt). One-shot.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "dblclick",
+      description: "🖱️🖱️ Double-click an element by @refN. Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "scroll_into_view",
+      description: "🪟 Scroll an element by @refN into the viewport center.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "select",
+      description: "🔽 Select option(s) on a <select> by @refN. value or values[] (multi-select).",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, value: { type: "string" }, values: { type: "array", items: { type: "string" } }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "drag",
+      description: "🤚 Drag from @ref to @ref (HTML5 drag events).",
+      inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" }, tab_id: { type: "number" } }, required: ["from", "to"] },
+    },
+    {
+      name: "get_text",
+      description: "📝 Read innerText of @refN. Cheap; prefer this over get_html for content extraction.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "get_html",
+      description: "📄 Read outerHTML of @refN. Typically large; only when get_text loses needed detail. Capped at 8KB by default.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, max_bytes: { type: "number", default: 8000 }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "get_value",
+      description: "🧮 Read input/textarea/contenteditable value of @refN.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "get_attr",
+      description: "🏷️ Read a DOM attribute of @refN.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, name: { type: "string" }, tab_id: { type: "number" } }, required: ["ref", "name"] },
+    },
+    {
+      name: "is_visible",
+      description: "👁️ Returns whether @refN is visible (rect>0 + visibility/display/opacity).",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "is_enabled",
+      description: "✅ Returns whether @refN is enabled (not disabled).",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "is_checked",
+      description: "☑️ Returns whether @refN is a checked checkbox/radio.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "hover",
+      description: "👆 Hover over an element by @refN; fires mouseover/mouseenter/mousemove. Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "focus",
+      description: "🎯 Focus an element by @refN. Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "check",
+      description: "☑️ Check a checkbox by @refN (no-op if already checked). Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "uncheck",
+      description: "☐ Uncheck a checkbox by @refN (no-op if already unchecked). Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "wait_ms",
+      description: "⏱️ Sleep for a fixed number of milliseconds.",
+      inputSchema: { type: "object", properties: { ms: { type: "number" }, tab_id: { type: "number" } }, required: ["ms"] },
+    },
+    // wait_for_selector is registered below (line ~1809, pre-existing
+    // power tool). The pre-existing handler accepts `timeout_ms` and
+    // `visible` flags that the new schema would have lost — instead
+    // we extended the power tool to also accept `timeout` (ms).
+    // Removed the duplicate SPEC registration here per round-4a review R1.
+    {
+      name: "wait_for_text",
+      description: "📝 Wait until the body innerText contains the given substring (or timeout).",
+      inputSchema: { type: "object", properties: { text: { type: "string" }, timeout: { type: "number", default: 10000 }, tab_id: { type: "number" } }, required: ["text"] },
+    },
+    {
+      name: "wait_for_url",
+      description: "🌐 Wait until the active tab's URL matches the given substring/regex (or timeout).",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, regex: { type: "boolean", default: false }, timeout: { type: "number", default: 10000 }, tab_id: { type: "number" } }, required: ["url"] },
+    },
+    {
+      name: "wait_for_load",
+      description: "📡 Wait until the active tab's status === \"complete\" (or timeout).",
+      inputSchema: { type: "object", properties: { timeout: { type: "number", default: 10000 }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "tab_new",
+      description: "🆕 Create a new tab. Alias for tab_create matching ab agent_browser_tab_new.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          active: { type: "boolean", default: true },
+        },
+      },
+    },
+    {
+      name: "close",
+      description: "❌ Close the active tab (or the given tab_id). ab agent_browser_close.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "press",
+      description: "⌨️ Press a key (or chord like Control+a) on the active element. ab agent_browser_press.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "e.g. Enter, Tab, Escape, Control+a" },
+          tab_id: { type: "number" },
+        },
+        required: ["key"],
+      },
+    },
+    {
+      name: "scroll",
+      description: "🖱️ Scroll the page. dir ∈ up|down|left|right (default down). pixels = scroll distance (default 800). ab agent_browser_scroll.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          dir: { type: "string", enum: ["up", "down", "left", "right"], default: "down" },
+          pixels: { type: "number", default: 800 },
+          tab_id: { type: "number" },
+        },
+      },
+    },
+    // screenshot is registered below (line ~1836, pre-existing).
+    // Removed the duplicate SPEC registration here per round-4a review R3.
+    {
+      name: "get_url",
+      description: "🔗 Return the current URL of the active (or given) tab. ab agent_browser_get_url.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "get_title",
+      description: "📰 Return the document title of the active (or given) tab. ab agent_browser_get_title.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "back",
+      description: "↩️ Navigate the tab one step back in history. ab agent_browser_back.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "forward",
+      description: "↪️ Navigate the tab one step forward in history. ab agent_browser_forward.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "reload",
+      description: "🔄 Reload the tab. ab agent_browser_reload. bypass_cache:true does a hard reload.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tab_id: { type: "number" },
+          bypass_cache: { type: "boolean", default: false },
+        },
+      },
+    },
+    {
       name: "page_analyze",
       description: "🔍 BACKGROUND TAB READY: Analyze any tab without switching to it! Two-phase intelligent page analysis with token efficiency optimization. Use tab_id parameter to analyze background tabs while staying on current page.",
       inputSchema: {
@@ -1479,6 +2158,9 @@ async function handleMCPRequest(message) {
 
     switch (method) {
       // New automation tools with background tab support
+      case "snapshot":
+        result = await sendToContentScript('snapshot', params, params.tab_id);
+        break;
       case "page_analyze":
         result = await sendToContentScript('analyze', params, params.tab_id);
         break;
@@ -1493,6 +2175,269 @@ async function handleMCPRequest(message) {
         break;
       case "page_navigate":
         result = await navigateToUrl(params.url, params.wait_for, params.timeout);
+        break;
+      case "open":
+        // SPEC alias for page_navigate; matches ab agent_browser_open.
+        result = await navigateToUrl(params.url, params.wait_for, params.timeout);
+        break;
+      case "tab_new":
+        result = await createTab({ url: params.url, active: params.active });
+        break;
+      case "dblclick":
+      case "scroll_into_view":
+      case "select":
+      case "drag":
+      case "get_text":
+      case "get_html":
+      case "get_value":
+      case "get_attr":
+      case "is_visible":
+      case "is_enabled":
+      case "is_checked":
+      case "find_by_role":
+      case "find_by_text":
+      case "find_by_label":
+      case "find_by_placeholder":
+      case "find_by_testid":
+      case "find":
+      case "errors":
+      case "highlight":
+      case "frame_main":
+      case "react_tree":
+      case "react_inspect":
+      case "react_renders_start":
+      case "react_renders_stop":
+      case "react_suspense":
+      case "storage_get":
+      case "storage_set":
+      case "storage_clear":
+      case "upload":
+      case "dialog_status":
+      case "console":
+      case "vitals":
+      case "inspect":
+      case "wait_for_function":
+      case "diff_snapshot":
+      case "get_box":
+      case "get_styles":
+      case "get_count":
+      case "tap":
+      case "mouse_down":
+      case "mouse_up":
+      case "mouse_move":
+      case "mouse_wheel":
+      case "keydown":
+      case "keyup":
+      case "keyboard_type":
+      case "keyboard_insert_text":
+      case "swipe":
+      case "pushstate":
+        result = await sendToContentScript(method, params, params.tab_id);
+        break;
+      case "set_viewport":
+        result = await cdpSetViewport(params);
+        break;
+      case "device":
+        result = await cdpSetViewport(devicePreset(params.name, params.tab_id));
+        break;
+      case "set_geo":
+        result = await cdpSetGeo(params);
+        break;
+      case "set_media":
+        result = await cdpSetMedia(params);
+        break;
+      case "dialog_accept":
+      case "confirm":
+        result = await prearmDialog(params.tab_id, "accept", params.text);
+        break;
+      case "dialog_dismiss":
+      case "deny":
+        result = await prearmDialog(params.tab_id, "dismiss", null);
+        break;
+      case "diff_url":
+        result = await diffUrl(params);
+        break;
+      case "download":
+        result = await chrome.downloads.download({ url: params.url, filename: params.filename })
+                       .then((id) => ({ ok: true, download_id: id, url: params.url }));
+        break;
+      case "diff_screenshot":
+        result = await diffScreenshot(params);
+        break;
+      case "pdf":
+        result = await capturePdf(params);
+        break;
+      case "network_requests":
+      case "network_har_stop":
+        result = await flushNetworkBuffer(params);
+        break;
+      case "network_har_start":
+        ensureNetListener();
+        result = { ok: true, started: true };
+        break;
+      // wait_for_download handled by the pre-existing case below
+      // (richer schema {timeout_ms, since_ms}). Removed the duplicate
+      // case here per round-4a review R2.
+      case "frame_switch":
+        result = await frameSwitch(params);
+        break;
+      case "add_init_script":
+        result = await addInitScript(params);
+        break;
+      case "remove_init_script":
+        result = await removeInitScript(params);
+        break;
+      case "window_new":
+        result = await chrome.windows.create({ url: params.url, focused: params.focused !== false })
+                       .then((w) => ({ ok: true, window_id: w.id }));
+        break;
+      case "set_offline":
+        result = await cdpSetOffline(params);
+        break;
+      case "profiler_start":
+        result = await cdpProfilerStart(params);
+        break;
+      case "profiler_stop":
+        result = await cdpProfilerStop(params);
+        break;
+      case "trace_start":
+        result = await cdpTraceStart(params);
+        break;
+      case "trace_stop":
+        result = await cdpTraceStop(params);
+        break;
+      case "cookies_get":
+        result = await cookiesGet(params);
+        break;
+      case "cookies_clear":
+        result = await cookiesClear(params);
+        break;
+      case "cookies_set":
+        result = await cookiesSet(params);
+        break;
+      case "cookies_set_curl":
+        result = await cookiesSetCurl(params);
+        break;
+      case "set_headers":
+        result = await cdpSetHeaders(params);
+        break;
+      case "set_credentials":
+        result = await cdpSetCredentials(params);
+        break;
+      case "network_request":
+        result = await backgroundFetch(params);
+        break;
+      case "network_route":
+        result = await cdpRouteInstall(params);
+        break;
+      case "network_unroute":
+        result = await cdpRouteClear(params);
+        break;
+      case "auth_save":
+        result = await authSave(params);
+        break;
+      case "auth_login":
+        result = await authLogin(params);
+        break;
+      case "auth_show":
+        result = await authShow(params);
+        break;
+      case "auth_list":
+        result = await authList();
+        break;
+      case "auth_delete":
+        result = await authDelete(params);
+        break;
+      case "state_save":
+        result = await stateSave(params);
+        break;
+      case "state_load":
+        result = await stateLoad(params);
+        break;
+      case "state_show":
+        result = await stateShow(params);
+        break;
+      case "state_list":
+        result = await stateList();
+        break;
+      case "state_clear":
+        result = await stateClear(params);
+        break;
+      case "state_clean":
+        result = await stateClean();
+        break;
+      case "state_rename":
+        result = await stateRename(params);
+        break;
+      case "eval":
+        result = await pageEval(params);
+        break;
+      case "get_cdp_url":
+        result = await getCdpUrl(params);
+        break;
+      case "hover":
+        result = await sendToContentScript('hover', params, params.tab_id);
+        break;
+      case "focus":
+        result = await sendToContentScript('focus', params, params.tab_id);
+        break;
+      case "check":
+        result = await sendToContentScript('check', params, params.tab_id);
+        break;
+      case "uncheck":
+        result = await sendToContentScript('uncheck', params, params.tab_id);
+        break;
+      case "wait_ms":
+        result = await sendToContentScript('wait_ms', params, params.tab_id);
+        break;
+      // wait_for_selector handled by the pre-existing power-tool case
+      // below (waitForSelector(params)). Removed the duplicate case here
+      // per round-4a review R1.
+      case "wait_for_text":
+        result = await sendToContentScript('wait_for_text', params, params.tab_id);
+        break;
+      case "wait_for_url":
+        result = await waitForTabUrl(params);
+        break;
+      case "wait_for_load":
+        result = await waitForTabLoad(params);
+        break;
+      case "close":
+        result = await closeTabs({ tab_id: params.tab_id });
+        break;
+      case "press":
+        result = await sendToContentScript('press', params, params.tab_id);
+        break;
+      case "scroll":
+        result = await sendToContentScript('scroll', params, params.tab_id);
+        break;
+      // screenshot handled by the pre-existing case below (same fn).
+      // Removed the duplicate case here per round-4a review R3.
+      case "get_url":
+        result = await tabGetField(params.tab_id, "url");
+        break;
+      case "get_title":
+        result = await tabGetField(params.tab_id, "title");
+        break;
+      case "click":
+        // SPEC ab agent_browser_click — @refN-based.
+        result = await sendToContentScript('click', params, params.tab_id);
+        break;
+      case "fill":
+        result = await sendToContentScript('fill', params, params.tab_id);
+        break;
+      case "type":
+        result = await sendToContentScript('type', params, params.tab_id);
+        break;
+      case "back":
+        // SPEC ab agent_browser_back.
+        result = await tabHistoryNavigate("back", params.tab_id);
+        break;
+      case "forward":
+        result = await tabHistoryNavigate("forward", params.tab_id);
+        break;
+      case "reload":
+        result = await tabReload(params.tab_id, !!params.bypass_cache);
         break;
       case "page_wait_for":
         result = await sendToContentScript('wait_for', params, params.tab_id);
@@ -1882,14 +2827,14 @@ async function _runInAllFrames(tabId, payload) {
 }
 
 async function evaluateJs(params) {
-  // MV3 page CSP forbids constructing a function from a string. Without
-  // CSP bypass via chrome.debugger, we can't honor arbitrary JS in the
-  // page world. Tell the caller to use dom_query / dom_query_all /
-  // dispatch_keys instead.
-  return {
-    success: false,
-    error: "evaluate_js requires Function-from-string, which MV3 + page CSP forbid. Use browser_dom_query / browser_dom_query_all / browser_dispatch_keys / browser_wait_for_selector for DOM operations."
-  };
+  // Legacy alias. The original implementation refused to run because
+  // MV3 + content-script CSP forbid Function-from-string. The newer
+  // `eval` op uses chrome.scripting.executeScript MAIN world which DOES
+  // work, so route here. SPEC parity + round-4a review D1.
+  const r = await pageEval({ script: params.script || params.code || "", tab_id: params.tab_id });
+  // Preserve the legacy {success} envelope for any caller still
+  // checking that field.
+  return { success: !!r?.ok, ...r };
 }
 
 async function domQuery(params) {
@@ -1926,7 +2871,9 @@ async function waitForSelector(params) {
   const result = await _runInMain(tabId, {
     op: 'wait_for_selector',
     selector: params.selector,
-    timeoutMs: params.timeout_ms || 8000,
+    // Accept both `timeout_ms` (legacy) and `timeout` (SPEC) so the
+    // bench fixtures keep working after round-4a review R1 dedup.
+    timeoutMs: params.timeout_ms || params.timeout || 8000,
     requireVisible: params.visible !== false,
   });
   return { success: true, ...result };
@@ -2099,6 +3046,33 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       source: params.entry?.source,
     });
     if (st.console.length > 2000) st.console.splice(0, st.console.length - 2000);
+  } else if (method === 'Fetch.requestPaused') {
+    // SPEC ab network_route — fulfill or continue based on per-tab route table.
+    const route = __routeState.get(source.tabId);
+    if (!route) {
+      _cdpSend(source.tabId, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {});
+      return;
+    }
+    const url = params.request?.url || '';
+    const matches = route.pattern && (
+      route.pattern === '*' ||
+      url.includes(route.pattern.replace(/\*/g, '')) ||
+      (function() { try { return new RegExp(route.pattern).test(url); } catch { return false; } })()
+    );
+    if (!matches) {
+      _cdpSend(source.tabId, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {});
+      return;
+    }
+    const resp = route.response || {};
+    const body = btoa(unescape(encodeURIComponent(resp.body || '')));
+    const headers = Object.entries(resp.headers || { 'content-type': 'text/plain' })
+      .map(([name, value]) => ({ name, value: String(value) }));
+    _cdpSend(source.tabId, 'Fetch.fulfillRequest', {
+      requestId: params.requestId,
+      responseCode: resp.status || 200,
+      responseHeaders: headers,
+      body,
+    }).catch(() => {});
   }
 });
 
@@ -2653,6 +3627,547 @@ async function waitForElement(tabId, selector, timeout = 5000) {
   }
   
   throw new Error(`Timeout waiting for element: ${selector}`);
+}
+
+// SPEC: ab back/forward/reload — thin wrappers over chrome.tabs.* with
+// active-tab fallback. Throws on missing tab so the WS caller sees a
+// clean error envelope instead of a silent no-op.
+async function tabHistoryNavigate(direction, tabId) {
+  const resolved = tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!resolved) throw new Error(`${direction}: no active tab`);
+  if (direction === "back") {
+    await chrome.tabs.goBack(resolved);
+  } else {
+    await chrome.tabs.goForward(resolved);
+  }
+  return { ok: true, direction, tab_id: resolved };
+}
+
+async function tabGetField(tabId, field) {
+  const resolved = tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!resolved) throw new Error(field + ": no active tab");
+  const tab = await chrome.tabs.get(resolved);
+  return { ok: true, tab_id: resolved, [field]: tab[field] || "" };
+}
+
+// SPEC ab agent_browser_wait_for_url — poll chrome.tabs.get until URL
+// matches. Background-side because the URL changes during navigation
+// would invalidate any content-script poll.
+async function waitForTabUrl(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("wait_for_url: no active tab");
+  const target = String(params.url || "");
+  const isRegex = !!params.regex;
+  const re = isRegex ? new RegExp(target) : null;
+  const timeout = params.timeout || 10000;
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const tab = await chrome.tabs.get(id);
+    const u = tab.url || "";
+    if ((isRegex && re.test(u)) || (!isRegex && u.includes(target))) {
+      return { ok: true, url: u, waited_ms: Date.now() - start };
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  throw new Error("wait_for_url: \"" + target + "\" did not match within " + timeout + "ms");
+}
+
+async function waitForTabLoad(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("wait_for_load: no active tab");
+  const timeout = params.timeout || 10000;
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const tab = await chrome.tabs.get(id);
+    if (tab.status === "complete") {
+      return { ok: true, status: "complete", waited_ms: Date.now() - start };
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  throw new Error("wait_for_load: did not reach complete within " + timeout + "ms");
+}
+
+// SPEC ab cookies_* — chrome.cookies API.
+// (waitForDownload defined above ~L3230 with the richer pre-existing
+// {timeout_ms, since_ms} schema; the duplicate SPEC variant was removed
+// per round-4a review R2.)
+
+// SPEC ab set_offline — CDP Network override.
+async function cdpSetOffline(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_offline: no active tab");
+  await _cdpSend(id, "Network.enable", {});
+  await _cdpSend(id, "Network.emulateNetworkConditions", {
+    offline: !!params.offline,
+    latency: 0,
+    downloadThroughput: -1,
+    uploadThroughput: -1,
+  });
+  return { ok: true, offline: !!params.offline, tab_id: id };
+}
+
+async function cdpProfilerStart(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("profiler_start: no active tab");
+  await _cdpSend(id, "Profiler.enable", {});
+  await _cdpSend(id, "Profiler.start", {});
+  return { ok: true, tab_id: id };
+}
+
+async function cdpProfilerStop(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("profiler_stop: no active tab");
+  const r = await _cdpSend(id, "Profiler.stop", {});
+  return { ok: true, tab_id: id, profile: r?.profile || null };
+}
+
+async function cdpTraceStart(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("trace_start: no active tab");
+  await _cdpSend(id, "Tracing.start", {
+    categories: (params.categories || ["devtools.timeline"]).join(","),
+    options: "record-until-full",
+  });
+  return { ok: true, tab_id: id };
+}
+
+async function cdpTraceStop(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("trace_stop: no active tab");
+  await _cdpSend(id, "Tracing.end", {});
+  return { ok: true, tab_id: id, note: "Tracing.end fired; events stream is consumed externally" };
+}
+
+// SPEC ab pdf — CDP Page.printToPDF; returns base64.
+async function capturePdf(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("pdf: no active tab");
+  const r = await _cdpSend(id, "Page.printToPDF", {});
+  return { ok: true, tab_id: id, base64: r?.data || "", bytes: (r?.data || "").length };
+}
+
+// SPEC ab network_requests — buffered request log.
+const __netBuffer = new Map(); // tabId → array of {url, method, type, ts}
+function ensureNetListener() {
+  if (globalThis.__openDiaNetListener) return;
+  chrome.webRequest.onBeforeRequest.addListener((details) => {
+    const buf = __netBuffer.get(details.tabId) || [];
+    buf.push({ url: details.url, method: details.method, type: details.type, ts: details.timeStamp });
+    if (buf.length > 200) buf.shift();
+    __netBuffer.set(details.tabId, buf);
+  }, { urls: ["<all_urls>"] });
+  globalThis.__openDiaNetListener = true;
+}
+async function flushNetworkBuffer(params) {
+  ensureNetListener();
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("network_requests: no active tab");
+  const buf = __netBuffer.get(id) || [];
+  const out = buf.slice();
+  if (params.flush !== false) __netBuffer.set(id, []);
+  return { ok: true, tab_id: id, requests: out, count: out.length };
+}
+
+// SPEC ab diff_url — track the URL across calls.
+const __urlState = new Map();
+async function diffUrl(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("diff_url: no active tab");
+  const tab = await chrome.tabs.get(id);
+  const prev = __urlState.get(id) ?? null;
+  __urlState.set(id, tab.url || "");
+  return { ok: true, prev, current: tab.url || "", changed: prev !== null && prev !== tab.url };
+}
+
+// SPEC ab diff_screenshot — capture viewport, byte-diff against last
+// stored screenshot for the tab. byte-equal is enough for "did anything
+// change" sanity; pixel-perfect diff would require canvas in MV3 SW.
+const __shotState = new Map();
+async function diffScreenshot(params) {
+  const out = await captureScreenshot(params);
+  const dataUrl = out?.data_url || out?.image || "";
+  const id = params.tab_id ?? "active";
+  const prev = __shotState.get(id) ?? null;
+  __shotState.set(id, dataUrl);
+  return {
+    ok: true,
+    equal: prev !== null && prev === dataUrl,
+    bytes_now: dataUrl.length,
+    bytes_prev: prev ? prev.length : 0,
+  };
+}
+
+// SPEC ab frame_switch — list frames in tab; pick by URL substring or id.
+async function frameSwitch(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("frame_switch: no active tab");
+  const frames = await new Promise((resolve, reject) =>
+    chrome.webNavigation.getAllFrames({ tabId: id }, (f) => f ? resolve(f) : reject(new Error("frame_switch: getAllFrames failed"))));
+  let target = null;
+  if (params.frame_id !== undefined) {
+    target = frames.find((f) => f.frameId === params.frame_id) || null;
+  } else if (params.match) {
+    target = frames.find((f) => (f.url || "").includes(params.match)) || null;
+  } else {
+    target = frames.find((f) => f.parentFrameId === -1) || null;
+  }
+  if (!target) {
+    return { ok: false, error: "frame_switch: no frame matched", frames: frames.map((f) => ({ id: f.frameId, url: f.url, parent: f.parentFrameId })) };
+  }
+  return { ok: true, tab_id: id, frame: { id: target.frameId, url: target.url, parent: target.parentFrameId },
+           note: "WS pipe still targets the top frame; subsequent content-script ops run there. CDP-level frame routing is a future PR." };
+}
+
+// SPEC ab add_init_script / remove_init_script — CDP Page.addScript...
+async function addInitScript(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("add_init_script: no active tab");
+  await _cdpSend(id, "Page.enable", {});
+  const r = await _cdpSend(id, "Page.addScriptToEvaluateOnNewDocument", { source: params.script || "" });
+  return { ok: true, tab_id: id, id: r?.identifier || null };
+}
+async function removeInitScript(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("remove_init_script: no active tab");
+  if (!params.id) throw new Error("remove_init_script: id required");
+  await _cdpSend(id, "Page.removeScriptToEvaluateOnNewDocument", { identifier: params.id });
+  return { ok: true, tab_id: id, id: params.id };
+}
+
+// SPEC ab cookies_set — DANGEROUS_TOOLS, user-approved. chrome.cookies.set.
+async function cookiesSet(params) {
+  const opts = { name: params.name, value: String(params.value ?? "") };
+  if (params.url) opts.url = params.url;
+  else if (params.domain) opts.domain = params.domain;
+  else opts.url = await activeTabUrl();
+  for (const k of ["path", "expirationDate", "secure", "httpOnly", "sameSite"]) {
+    if (params[k] !== undefined) opts[k] = params[k];
+  }
+  const cookie = await chrome.cookies.set(opts);
+  return { ok: true, cookie };
+}
+
+// SPEC ab cookies_set_curl — parse one Set-Cookie:-like header.
+async function cookiesSetCurl(params) {
+  const url = params.url || (await activeTabUrl());
+  const header = String(params.header || "").replace(/^Set-Cookie:\s*/i, "");
+  const parts = header.split(";").map((s) => s.trim()).filter(Boolean);
+  const [first, ...rest] = parts;
+  const eq = first.indexOf("=");
+  if (eq === -1) throw new Error("cookies_set_curl: malformed header");
+  const opts = { url, name: first.slice(0, eq), value: first.slice(eq + 1) };
+  for (const seg of rest) {
+    const [k, v] = seg.includes("=") ? seg.split("=", 2) : [seg, ""];
+    const lk = k.toLowerCase();
+    if (lk === "path") opts.path = v;
+    else if (lk === "domain") opts.domain = v;
+    else if (lk === "secure") opts.secure = true;
+    else if (lk === "httponly") opts.httpOnly = true;
+    else if (lk === "samesite") opts.sameSite = v.toLowerCase();
+    else if (lk === "expires") opts.expirationDate = Math.floor(Date.parse(v) / 1000);
+    else if (lk === "max-age") opts.expirationDate = Math.floor(Date.now() / 1000) + parseInt(v, 10);
+  }
+  const cookie = await chrome.cookies.set(opts);
+  return { ok: true, cookie };
+}
+
+// SPEC ab set_headers / set_credentials — CDP Network override.
+async function cdpSetHeaders(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_headers: no active tab");
+  await _cdpSend(id, "Network.enable", {});
+  await _cdpSend(id, "Network.setExtraHTTPHeaders", { headers: params.headers || {} });
+  return { ok: true, tab_id: id, count: Object.keys(params.headers || {}).length };
+}
+
+async function cdpSetCredentials(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_credentials: no active tab");
+  if (typeof params.username !== "string" || typeof params.password !== "string") {
+    throw new Error("set_credentials: username and password required (non-null strings)");
+  }
+  if (params.username.includes(":")) {
+    throw new Error("set_credentials: username may not contain ':' (Basic auth separator)");
+  }
+  const auth = "Basic " + btoa(params.username + ":" + params.password);
+  await _cdpSend(id, "Network.enable", {});
+  await _cdpSend(id, "Network.setExtraHTTPHeaders", { headers: { Authorization: auth } });
+  return { ok: true, tab_id: id, username: params.username };
+}
+
+// SPEC ab network_request — DANGEROUS unrestricted fetch.
+async function backgroundFetch(params) {
+  const r = await fetch(params.url, {
+    method: params.method || "GET",
+    headers: params.headers || {},
+    body: params.body,
+    credentials: params.credentials || "include",
+  });
+  const text = await r.text();
+  const headers = {};
+  for (const [k, v] of r.headers.entries()) headers[k] = v;
+  return { ok: true, status: r.status, headers, body: text, bytes: text.length };
+}
+
+// SPEC ab network_route / network_unroute — CDP Fetch.* interceptor.
+const __routeState = new Map();
+async function cdpRouteInstall(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("network_route: no active tab");
+  if (typeof params.pattern !== "string" || params.pattern.length > 1024) {
+    throw new Error("network_route: pattern required (string ≤ 1024 chars)");
+  }
+  const respBytes = ((params.response && params.response.body) || "").length;
+  if (respBytes > 1024 * 1024) {
+    throw new Error("network_route: response.body capped at 1 MiB to bound service-worker memory");
+  }
+  await _cdpSend(id, "Fetch.enable", {
+    patterns: [{ urlPattern: params.pattern, requestStage: "Request" }],
+  });
+  __routeState.set(id, params);
+  return { ok: true, tab_id: id, pattern: params.pattern };
+}
+async function cdpRouteClear(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("network_unroute: no active tab");
+  await _cdpSend(id, "Fetch.disable", {});
+  __routeState.delete(id);
+  return { ok: true, tab_id: id };
+}
+
+// SPEC ab auth_* — chrome.storage.local credential vault.
+async function authSave(params) {
+  const key = "auth/" + params.name;
+  await chrome.storage.local.set({ [key]: { kind: params.kind, payload: params.payload, savedAt: Date.now() } });
+  return { ok: true, name: params.name };
+}
+async function authShow(params) {
+  const key = "auth/" + params.name;
+  const r = await chrome.storage.local.get(key);
+  if (!r[key]) throw new Error("auth_show: \"" + params.name + "\" not found");
+  return { ok: true, name: params.name, ...r[key] };
+}
+async function authList() {
+  const r = await chrome.storage.local.get(null);
+  return { ok: true, names: Object.keys(r).filter((k) => k.startsWith("auth/")).map((k) => k.slice(5)) };
+}
+async function authDelete(params) {
+  const key = "auth/" + params.name;
+  await chrome.storage.local.remove(key);
+  return { ok: true, name: params.name };
+}
+async function authLogin(params) {
+  const bundle = await authShow(params);
+  // Apply bundle.payload to the active tab. payload shape:
+  //   { cookies: [chrome.cookies.set args], headers: {…} }
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("auth_login: no active tab");
+  if (Array.isArray(bundle.payload?.cookies)) {
+    for (const c of bundle.payload.cookies) await chrome.cookies.set(c);
+  }
+  if (bundle.payload?.headers) {
+    await _cdpSend(id, "Network.enable", {});
+    await _cdpSend(id, "Network.setExtraHTTPHeaders", { headers: bundle.payload.headers });
+  }
+  return { ok: true, name: params.name, applied: { cookies: (bundle.payload?.cookies || []).length, headers: !!bundle.payload?.headers } };
+}
+
+// SPEC ab state_* — full session snapshot.
+async function stateSave(params) {
+  const url = await activeTabUrl(params.tab_id);
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  const cookies = await chrome.cookies.getAll({ url });
+  const storage = await chrome.scripting.executeScript({
+    target: { tabId: id },
+    func: () => ({
+      local: Object.fromEntries(Array.from({ length: localStorage.length }, (_, i) => [localStorage.key(i), localStorage.getItem(localStorage.key(i))])),
+      session: Object.fromEntries(Array.from({ length: sessionStorage.length }, (_, i) => [sessionStorage.key(i), sessionStorage.getItem(sessionStorage.key(i))])),
+    }),
+  });
+  const key = "state/" + params.name;
+  await chrome.storage.local.set({ [key]: { url, cookies, storage: storage[0]?.result || { local: {}, session: {} }, savedAt: Date.now() } });
+  return { ok: true, name: params.name, url, cookies: cookies.length };
+}
+async function stateShow(params) {
+  const key = "state/" + params.name;
+  const r = await chrome.storage.local.get(key);
+  if (!r[key]) throw new Error("state_show: \"" + params.name + "\" not found");
+  return { ok: true, name: params.name, ...r[key] };
+}
+async function stateList() {
+  const r = await chrome.storage.local.get(null);
+  return { ok: true, names: Object.keys(r).filter((k) => k.startsWith("state/")).map((k) => k.slice(6)) };
+}
+async function stateLoad(params) {
+  const bundle = await stateShow(params);
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("state_load: no active tab");
+  for (const c of bundle.cookies || []) {
+    // chrome.cookies.set rejects expirationDate in the past; clamp.
+    const opts = { url: c.url || bundle.url, name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite };
+    if (c.expirationDate && c.expirationDate > Date.now() / 1000) opts.expirationDate = c.expirationDate;
+    try { await chrome.cookies.set(opts); } catch { /* skip cookies the browser refuses */ }
+  }
+  await chrome.scripting.executeScript({
+    target: { tabId: id },
+    func: (s) => {
+      localStorage.clear(); sessionStorage.clear();
+      for (const [k, v] of Object.entries(s.local || {})) localStorage.setItem(k, v);
+      for (const [k, v] of Object.entries(s.session || {})) sessionStorage.setItem(k, v);
+    },
+    args: [bundle.storage || { local: {}, session: {} }],
+  });
+  return { ok: true, name: params.name, cookies: (bundle.cookies || []).length };
+}
+async function stateClear(params) {
+  const key = "state/" + params.name;
+  await chrome.storage.local.remove(key);
+  return { ok: true, name: params.name };
+}
+async function stateClean() {
+  const r = await chrome.storage.local.get(null);
+  const keys = Object.keys(r).filter((k) => k.startsWith("state/"));
+  if (keys.length) await chrome.storage.local.remove(keys);
+  return { ok: true, removed: keys.length };
+}
+async function stateRename(params) {
+  const fromKey = "state/" + params.from;
+  const toKey = "state/" + params.to;
+  const r = await chrome.storage.local.get(fromKey);
+  if (!r[fromKey]) throw new Error("state_rename: \"" + params.from + "\" not found");
+  await chrome.storage.local.set({ [toKey]: r[fromKey] });
+  await chrome.storage.local.remove(fromKey);
+  return { ok: true, from: params.from, to: params.to };
+}
+
+// SPEC ab eval — DANGEROUS. chrome.scripting.executeScript MAIN world.
+async function pageEval(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("eval: no active tab");
+  const r = await chrome.scripting.executeScript({
+    target: { tabId: id },
+    world: "MAIN",
+    func: (src) => {
+      try {
+        // Wrap as an IIFE so multi-statement scripts work; the script
+        // must `return` its result.
+        // eslint-disable-next-line no-new-func
+        return { ok: true, value: new Function("return (function(){ " + src + " })();")() };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+    args: [params.script],
+  });
+  return r[0]?.result || { ok: false, error: "no result" };
+}
+
+async function cookiesGet(params) {
+  const url = params.url ?? await activeTabUrl(params.tab_id);
+  const cookies = await chrome.cookies.getAll({ url });
+  return { ok: true, url, cookies };
+}
+
+async function cookiesClear(params) {
+  const url = params.url ?? await activeTabUrl(params.tab_id);
+  const cookies = await chrome.cookies.getAll({ url });
+  for (const c of cookies) {
+    await chrome.cookies.remove({ url, name: c.name });
+  }
+  return { ok: true, url, cleared: cookies.length };
+}
+
+async function activeTabUrl(tabId) {
+  const id = tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("no active tab");
+  const tab = await chrome.tabs.get(id);
+  return tab.url || "";
+}
+
+async function getCdpUrl(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("get_cdp_url: no active tab");
+  // Chrome DevTools front-end URL — only useful when the user has
+  // --remote-debugging-port set; otherwise this is best-effort.
+  return { ok: true, tab_id: id, cdp_url: "devtools://devtools/bundled/inspector.html?ws=localhost:9222/devtools/page/" + id };
+}
+
+// SPEC ab dialog_accept / dialog_dismiss — pre-arm the next
+// alert/confirm/prompt by injecting overrides into the page main world
+// (through chrome.scripting.executeScript). One-shot; the override
+// removes itself after the first dialog.
+async function prearmDialog(tabId, action, promptText) {
+  const id = tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("dialog_" + action + ": no active tab");
+  await chrome.scripting.executeScript({
+    target: { tabId: id },
+    world: "MAIN",
+    func: (a, t) => {
+      const orig = { alert: window.alert, confirm: window.confirm, prompt: window.prompt };
+      const restore = () => Object.assign(window, orig);
+      window.alert = function () { restore(); };
+      window.confirm = function () { restore(); return a === "accept"; };
+      window.prompt = function () { restore(); return a === "accept" ? (t || "") : null; };
+    },
+    args: [action, promptText],
+  });
+  return { ok: true, action, tab_id: id };
+}
+
+// CDP-based emulation overrides — re-using the existing _cdpSend helper
+// (search for it elsewhere in this file). Each override persists until
+// the tab is closed or a same-domain CDP clear call is issued.
+// SPEC ab agent_browser_device — small named-preset table.
+function devicePreset(name, tab_id) {
+  const presets = {
+    iphone15:   { width: 393, height: 852, mobile: true,  deviceScaleFactor: 3 },
+    pixel7:     { width: 412, height: 915, mobile: true,  deviceScaleFactor: 2.625 },
+    ipad:       { width: 820, height: 1180, mobile: true, deviceScaleFactor: 2 },
+    desktop1080:{ width: 1920, height: 1080, mobile: false, deviceScaleFactor: 1 },
+  };
+  const preset = presets[name];
+  if (!preset) throw new Error("device: unknown preset \"" + name + "\"");
+  return Object.assign({}, preset, { tab_id });
+}
+
+async function cdpSetViewport(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_viewport: no active tab");
+  await _cdpSend(id, "Emulation.setDeviceMetricsOverride", {
+    width: params.width,
+    height: params.height,
+    deviceScaleFactor: params.deviceScaleFactor || 1,
+    mobile: !!params.mobile,
+  });
+  return { ok: true, tab_id: id, width: params.width, height: params.height };
+}
+
+async function cdpSetGeo(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_geo: no active tab");
+  await _cdpSend(id, "Emulation.setGeolocationOverride", {
+    latitude: params.latitude,
+    longitude: params.longitude,
+    accuracy: params.accuracy ?? 100,
+  });
+  return { ok: true, tab_id: id, latitude: params.latitude, longitude: params.longitude };
+}
+
+async function cdpSetMedia(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_media: no active tab");
+  await _cdpSend(id, "Emulation.setEmulatedMedia", {
+    type: params.type || "",
+    features: params.features || [],
+  });
+  return { ok: true, tab_id: id };
+}
+
+async function tabReload(tabId, bypassCache) {
+  const resolved = tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!resolved) throw new Error("reload: no active tab");
+  await chrome.tabs.reload(resolved, { bypassCache: !!bypassCache });
+  return { ok: true, tab_id: resolved, bypass_cache: !!bypassCache };
 }
 
 // Enhanced Tab Management Functions with Batch Support

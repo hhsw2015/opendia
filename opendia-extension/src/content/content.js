@@ -10,6 +10,24 @@ if (typeof window.OpenDiaContentScriptLoaded !== 'undefined') {
 } else {
   window.OpenDiaContentScriptLoaded = true;
 
+// SPEC §4.1 — invalidate live ref tables on navigation. Without this,
+// @refN from the prior snapshot resolves to a detached DOM node after
+// SPA route changes, and click/fill/etc. silently no-op.
+function __openDiaInvalidateRefs() {
+  globalThis.__openDiaSnapshotRefs = [];
+  globalThis.__openDiaSnapshotText = "";
+  globalThis.__openDiaSnapshotUrl = "";
+  globalThis.__openDiaFindRefs = [];
+}
+window.addEventListener("pageshow", __openDiaInvalidateRefs);
+window.addEventListener("popstate", __openDiaInvalidateRefs);
+(function () {
+  const origPush = history.pushState;
+  const origReplace = history.replaceState;
+  history.pushState = function () { __openDiaInvalidateRefs(); return origPush.apply(this, arguments); };
+  history.replaceState = function () { __openDiaInvalidateRefs(); return origReplace.apply(this, arguments); };
+})();
+
 console.log("OpenDia enhanced content script loaded");
 
 // Enhanced Pattern Database with Twitter-First Priority
@@ -300,6 +318,900 @@ class BrowserAutomation {
         case "ping":
           // Health check for background tab content script readiness
           result = { status: "ready", timestamp: Date.now(), url: window.location.href };
+          break;
+        case "storage_set":
+          {
+            const kind = (data && data.kind) || "local";
+            const key = data && data.key;
+            const value = data && data.value;
+            if (!key) throw new Error("storage_set: key required");
+            const store = kind === "session" ? window.sessionStorage : window.localStorage;
+            store.setItem(key, String(value ?? ""));
+            result = { ok: true, kind, key, bytes: String(value ?? "").length };
+          }
+          break;
+        case "storage_clear":
+          {
+            const kind = (data && data.kind) || "local";
+            const store = kind === "session" ? window.sessionStorage : window.localStorage;
+            const before = store.length;
+            store.clear();
+            result = { ok: true, kind, cleared: before };
+          }
+          break;
+        case "upload":
+          {
+            // Build a DataTransfer over the supplied {name, mime, base64}
+            // file objects and dispatch on the @refN <input type=file>.
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "upload", globalThis.__openDiaFindRefs);
+            if (!el || el.type !== "file") {
+              throw new Error("upload: " + data.ref + " is not <input type=file>");
+            }
+            const files = Array.isArray(data.files) ? data.files : [];
+            if (!files.length) throw new Error("upload: files[] required");
+            const dt = new DataTransfer();
+            for (const f of files) {
+              const bin = atob(f.base64 || "");
+              const buf = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+              dt.items.add(new File([buf], f.name || "upload.bin", { type: f.mime || "application/octet-stream" }));
+            }
+            el.files = dt.files;
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            result = { ok: true, ref: data.ref, count: files.length };
+          }
+          break;
+        case "storage_get":
+          // Read localStorage / sessionStorage. Not all keys; just one.
+          {
+            const kind = (data && data.kind) || "local";
+            const key = data && data.key;
+            if (!key) throw new Error("storage_get: key required");
+            const store = kind === "session" ? window.sessionStorage : window.localStorage;
+            result = { ok: true, kind, key, value: store.getItem(key) };
+          }
+          break;
+        case "dialog_status":
+          {
+            // We don't track armed dialog state across calls in content
+            // (the prearm hook lives in MAIN world); approximate with
+            // "armed:false" for ergonomics.
+            result = { ok: true, armed: false, note: "dialog_status: prearm lives in MAIN world; status unobservable from content script" };
+          }
+          break;
+        case "react_tree":
+          // Walk fiber tree from each root; emit compact node list.
+          {
+            const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+            if (!hook || !hook.renderers || hook.renderers.size === 0) {
+              result = { ok: false, action, reason: "react-devtools hook absent — page not React or DevTools not attached" };
+              break;
+            }
+            const rendererIds = Array.from(hook.renderers.keys());
+            const limit = (data && data.max_nodes) || 200;
+            const out = [];
+            for (const rid of rendererIds) {
+              const roots = hook.getFiberRoots ? Array.from(hook.getFiberRoots(rid) || []) : [];
+              for (const root of roots) {
+                const start = root.current || root;
+                const stack = [{ fiber: start, depth: 0 }];
+                while (stack.length && out.length < limit) {
+                  const { fiber, depth } = stack.pop();
+                  if (!fiber) continue;
+                  const tag = fiber.type;
+                  const name = typeof tag === "string" ? tag :
+                               tag && (tag.displayName || tag.name) ? (tag.displayName || tag.name) :
+                               null;
+                  if (name) out.push({ depth, name, key: fiber.key ?? null });
+                  if (fiber.sibling) stack.push({ fiber: fiber.sibling, depth });
+                  if (fiber.child) stack.push({ fiber: fiber.child, depth: depth + 1 });
+                }
+              }
+            }
+            result = { ok: true, action: "react_tree", nodes: out, truncated: out.length >= limit };
+          }
+          break;
+        case "react_inspect":
+          // Map @refN DOM element back to nearest fiber; return component name + props keys.
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "react_inspect", globalThis.__openDiaFindRefs);
+            const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"));
+            if (!key) {
+              result = { ok: false, ref: data.ref, reason: "no fiber on element — page not React" };
+              break;
+            }
+            let fiber = el[key];
+            const ancestors = [];
+            for (let walker = fiber; walker && ancestors.length < 5; walker = walker.return) {
+              const t = walker.type;
+              const n = typeof t === "string" ? t : t && (t.displayName || t.name);
+              if (n) ancestors.push(n);
+            }
+            const props = fiber.memoizedProps || fiber.pendingProps || {};
+            result = {
+              ok: true,
+              ref: data.ref,
+              component: ancestors[0] || null,
+              ancestors,
+              props_keys: Object.keys(props || {}),
+              has_state: !!fiber.memoizedState,
+            };
+          }
+          break;
+        case "react_renders_start":
+        case "react_renders_stop":
+          // Hook commit-phase callbacks for render counts.
+          {
+            const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+            if (!hook) { result = { ok: false, action, reason: "react-devtools hook absent" }; break; }
+            if (action === "react_renders_start") {
+              if (!globalThis.__openDiaReactRenders) {
+                globalThis.__openDiaReactRenders = { counts: new Map(), origOnCommit: hook.onCommitFiberRoot };
+                hook.onCommitFiberRoot = function (rendererID, root) {
+                  try {
+                    const fiber = root && (root.current || root);
+                    const t = fiber && fiber.type;
+                    const n = typeof t === "string" ? t : t && (t.displayName || t.name);
+                    if (n) globalThis.__openDiaReactRenders.counts.set(n, (globalThis.__openDiaReactRenders.counts.get(n) || 0) + 1);
+                  } catch {}
+                  if (globalThis.__openDiaReactRenders.origOnCommit) return globalThis.__openDiaReactRenders.origOnCommit.apply(this, arguments);
+                };
+              }
+              result = { ok: true, action: "react_renders_start" };
+            } else {
+              const state = globalThis.__openDiaReactRenders;
+              if (!state) { result = { ok: false, action, reason: "react_renders_start was not called" }; break; }
+              hook.onCommitFiberRoot = state.origOnCommit;
+              const counts = Object.fromEntries(state.counts);
+              delete globalThis.__openDiaReactRenders;
+              result = { ok: true, action: "react_renders_stop", counts };
+            }
+          }
+          break;
+        case "react_suspense":
+          // Walk fibers, count Suspense boundaries by state.
+          {
+            const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+            if (!hook || !hook.renderers || hook.renderers.size === 0) {
+              result = { ok: false, action, reason: "react-devtools hook absent" };
+              break;
+            }
+            let pending = 0, resolved = 0;
+            for (const rid of hook.renderers.keys()) {
+              const roots = hook.getFiberRoots ? Array.from(hook.getFiberRoots(rid) || []) : [];
+              for (const root of roots) {
+                const stack = [root.current || root];
+                while (stack.length) {
+                  const f = stack.pop();
+                  if (!f) continue;
+                  // SuspenseComponent tag = 13, OffscreenComponent tag = 22 in modern React
+                  if (f.tag === 13) {
+                    if (f.memoizedState) pending += 1;
+                    else resolved += 1;
+                  }
+                  if (f.sibling) stack.push(f.sibling);
+                  if (f.child) stack.push(f.child);
+                }
+              }
+            }
+            result = { ok: true, action: "react_suspense", pending, resolved };
+          }
+          break;
+        case "errors":
+          // Buffered window.onerror / unhandledrejection capture.
+          {
+            if (!globalThis.__openDiaErrorBuf) {
+              globalThis.__openDiaErrorBuf = [];
+              window.addEventListener("error", (ev) => {
+                globalThis.__openDiaErrorBuf.push({
+                  type: "error",
+                  message: ev.message,
+                  filename: ev.filename,
+                  lineno: ev.lineno,
+                  colno: ev.colno,
+                  ts: Date.now(),
+                });
+                if (globalThis.__openDiaErrorBuf.length > 200) globalThis.__openDiaErrorBuf.shift();
+              });
+              window.addEventListener("unhandledrejection", (ev) => {
+                globalThis.__openDiaErrorBuf.push({
+                  type: "unhandledrejection",
+                  reason: ev.reason ? String(ev.reason) : null,
+                  ts: Date.now(),
+                });
+                if (globalThis.__openDiaErrorBuf.length > 200) globalThis.__openDiaErrorBuf.shift();
+              });
+            }
+            const flush = !!(data && data.flush !== false);
+            const errors = globalThis.__openDiaErrorBuf.slice();
+            if (flush) globalThis.__openDiaErrorBuf.length = 0;
+            result = { ok: true, errors, count: errors.length };
+          }
+          break;
+        case "highlight":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "highlight", globalThis.__openDiaFindRefs);
+            const color = (data && data.color) || "magenta";
+            const prev = el.style.outline;
+            el.style.outline = "3px solid " + color;
+            const ms = (data && data.duration_ms) || 1500;
+            setTimeout(() => { el.style.outline = prev; }, ms);
+            result = { ok: true, ref: data.ref, color, duration_ms: ms };
+          }
+          break;
+        case "frame_main":
+          // We always run in the top frame's content script; report it.
+          result = { ok: true, current: window.top === window ? "main" : "child" };
+          break;
+        case "console":
+          // Buffered console.log/warn/error. Page bootstrap installs the
+          // hook (idempotent); the WS op flushes & returns it.
+          {
+            if (!globalThis.__openDiaConsoleBuf) {
+              globalThis.__openDiaConsoleBuf = [];
+              for (const lvl of ["log", "warn", "error", "info", "debug"]) {
+                const orig = console[lvl].bind(console);
+                console[lvl] = function (...args) {
+                  globalThis.__openDiaConsoleBuf.push({
+                    level: lvl,
+                    text: args.map((a) => {
+                      try { return typeof a === "string" ? a : JSON.stringify(a); }
+                      catch { return String(a); }
+                    }).join(" "),
+                    ts: Date.now(),
+                  });
+                  if (globalThis.__openDiaConsoleBuf.length > 500) globalThis.__openDiaConsoleBuf.shift();
+                  return orig(...args);
+                };
+              }
+            }
+            const flush = !!(data && data.flush !== false);
+            const messages = globalThis.__openDiaConsoleBuf.slice();
+            if (flush) globalThis.__openDiaConsoleBuf.length = 0;
+            result = { ok: true, messages, count: messages.length };
+          }
+          break;
+        case "vitals":
+          // Best-effort web-vitals snapshot using PerformanceObserver
+          // entries already in memory. No new dependency.
+          {
+            const navEntry = performance.getEntriesByType("navigation")[0];
+            const paint = Object.fromEntries(
+              performance.getEntriesByType("paint").map((e) => [e.name, e.startTime])
+            );
+            const largestContentful = performance.getEntriesByType("largest-contentful-paint").slice(-1)[0];
+            result = {
+              ok: true,
+              navigation: navEntry ? {
+                type: navEntry.type,
+                duration: navEntry.duration,
+                domContentLoaded: navEntry.domContentLoadedEventEnd,
+                load: navEntry.loadEventEnd,
+              } : null,
+              paint,
+              lcp: largestContentful ? largestContentful.startTime : null,
+            };
+          }
+          break;
+        case "inspect":
+          // CSS-selector → detailed shape (tag, text, role, rect, attrs).
+          {
+            const sel = data && data.selector;
+            if (!sel) throw new Error("inspect: selector required");
+            const el = document.querySelector(sel);
+            if (!el) throw new Error("inspect: no element matches \"" + sel + "\"");
+            const rect = el.getBoundingClientRect();
+            const attrs = {};
+            for (const a of el.attributes || []) attrs[a.name] = a.value;
+            result = {
+              ok: true,
+              selector: sel,
+              tag: el.tagName ? el.tagName.toLowerCase() : null,
+              text: (el.innerText || "").trim().slice(0, 200),
+              rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+              attrs,
+              visible: rect.width > 0 && rect.height > 0,
+            };
+          }
+          break;
+        case "wait_for_function":
+          // SPEC ab — DANGEROUS_TOOLS: eval a JS expression in poll loop
+          // until truthy. Pre-marked dangerous in matrix.
+          {
+            const expr = data && data.script;
+            if (!expr) throw new Error("wait_for_function: script required");
+            const timeout = (data && data.timeout) || 10000;
+            let fn;
+            try {
+              // eslint-disable-next-line no-new-func
+              fn = new Function("return (" + expr + ");");
+            } catch (e) {
+              throw new Error("wait_for_function: failed to compile script — " + e.message + " (CSP may block this on the page)");
+            }
+            const start = Date.now();
+            while (Date.now() - start < timeout) {
+              let r;
+              try { r = fn(); } catch (e) { r = false; }
+              if (r) {
+                result = { ok: true, value: r === true || r === false ? r : null, waited_ms: Date.now() - start };
+                break;
+              }
+              await new Promise((res) => setTimeout(res, 100));
+            }
+            if (!result) throw new Error("wait_for_function: timed out after " + timeout + "ms");
+          }
+          break;
+        case "diff_snapshot":
+          // SPEC §4 diff_snapshot — re-render and diff against the last
+          // text-form snapshot stashed on globalThis.__openDiaSnapshotText.
+          // Cheap: returns just the line-level added/removed/changed list.
+          {
+            if (!globalThis.OpenDiaSnapshot) throw new Error("snapshot module not loaded");
+            const fresh = globalThis.OpenDiaSnapshot.compactSnapshot(document.body, {
+              interactiveOnly: !!(data && data.interactive_only),
+              maxNodes: (data && data.max_nodes) || 400,
+              source_id: window.location.href,
+              recordElements: true,
+            });
+            const prevText = globalThis.__openDiaSnapshotText || "";
+            const oldLines = prevText.split("\n");
+            const newLines = fresh.text.split("\n");
+            const oldSet = new Set(oldLines);
+            const newSet = new Set(newLines);
+            const added = newLines.filter((l) => !oldSet.has(l));
+            const removed = oldLines.filter((l) => !newSet.has(l));
+            // Persist new state for the next diff.
+            globalThis.__openDiaSnapshotRefs = fresh._elements || [];
+            globalThis.__openDiaSnapshotText = fresh.text;
+            globalThis.__openDiaSnapshotUrl = window.location.href;
+            delete fresh._elements;
+            result = {
+              schema_version: "1",
+              source: fresh.source,
+              added,
+              removed,
+              ref_count: Object.keys(fresh.ref_map).length,
+            };
+          }
+          break;
+        case "snapshot":
+          // SPEC §4.1 browser_snapshot — compact a11y/DOM tree + ref map.
+          // snapshot.js is loaded ahead of content.js by the manifest and
+          // attaches its API to globalThis.OpenDiaSnapshot.
+          if (!globalThis.OpenDiaSnapshot) {
+            throw new Error("snapshot module not loaded");
+          }
+          {
+            const snap = globalThis.OpenDiaSnapshot.compactSnapshot(document.body, {
+              interactiveOnly: !!(data && data.interactive_only),
+              maxNodes: (data && data.max_nodes) || 400,
+              source_id: window.location.href,
+              recordElements: true,
+            });
+            // Stash the live ref→element table so a subsequent click/fill
+            // can resolve @refN without re-walking. Wire-shape result
+            // strips the elements array; SPEC §4.1 stays pure JSON.
+            globalThis.__openDiaSnapshotRefs = snap._elements || [];
+            globalThis.__openDiaSnapshotText = snap.text;
+            globalThis.__openDiaSnapshotUrl = window.location.href;
+            delete snap._elements;
+            result = snap;
+          }
+          break;
+        case "click":
+          // SPEC ab agent_browser_click via @refN from the last snapshot.
+          {
+            if (!globalThis.OpenDiaSnapshot) throw new Error("snapshot module not loaded");
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "click", globalThis.__openDiaFindRefs);
+            el.scrollIntoView({ block: "center", inline: "center" });
+            el.click();
+            result = { ok: true, ref: data.ref, tag: el.tagName ? el.tagName.toLowerCase() : null };
+          }
+          break;
+        case "fill":
+          // SPEC ab agent_browser_fill — set value + fire input/change.
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "fill", globalThis.__openDiaFindRefs);
+            const value = data && typeof data.value === "string" ? data.value : "";
+            el.scrollIntoView({ block: "center", inline: "center" });
+            el.focus();
+            // Cover both <input>/<textarea> (.value) and contenteditable.
+            if ("value" in el) {
+              const proto = Object.getPrototypeOf(el);
+              const desc = Object.getOwnPropertyDescriptor(proto, "value");
+              if (desc && desc.set) desc.set.call(el, value);
+              else el.value = value;
+            } else if (el.isContentEditable) {
+              el.textContent = value;
+            } else {
+              throw new Error("fill: " + data.ref + " is not fillable");
+            }
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "get_box":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_box", globalThis.__openDiaFindRefs);
+            const r = el.getBoundingClientRect();
+            result = { ok: true, ref: data.ref, x: r.left, y: r.top, width: r.width, height: r.height };
+          }
+          break;
+        case "get_styles":
+          // Computed styles. Verbose; cap to {properties:[…]} when given,
+          // otherwise return the SPEC §2.3 short list.
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_styles", globalThis.__openDiaFindRefs);
+            const cs = window.getComputedStyle(el);
+            const props = (data && data.properties && data.properties.length)
+              ? data.properties
+              : ["display", "visibility", "opacity", "color", "background-color", "font-size", "font-weight"];
+            const styles = {};
+            for (const p of props) styles[p] = cs.getPropertyValue(p);
+            result = { ok: true, ref: data.ref, styles };
+          }
+          break;
+        case "get_count":
+          {
+            const sel = data && data.selector;
+            if (!sel) throw new Error("get_count: selector required");
+            result = { ok: true, selector: sel, count: document.querySelectorAll(sel).length };
+          }
+          break;
+        case "tap":
+          // Touch tap at viewport (x, y).
+          {
+            const x = (data && data.x) ?? 0;
+            const y = (data && data.y) ?? 0;
+            const target = document.elementFromPoint(x, y) || document.body;
+            const t = (type) => new TouchEvent(type, {
+              bubbles: true, cancelable: true,
+              touches: type === "touchend" ? [] : [new Touch({ identifier: 0, target, clientX: x, clientY: y })],
+              changedTouches: [new Touch({ identifier: 0, target, clientX: x, clientY: y })],
+            });
+            target.dispatchEvent(t("touchstart"));
+            target.dispatchEvent(t("touchend"));
+            target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            result = { ok: true, x, y };
+          }
+          break;
+        case "find":
+          // SPEC ab agent_browser_find — single-shot CSS lookup, slot
+          // into ref table.
+          {
+            const sel = data && data.selector;
+            if (!sel) throw new Error("find: selector required");
+            const match = document.querySelector(sel);
+            if (!match) throw new Error("find: no element matches \"" + sel + "\"");
+            const table = globalThis.__openDiaFindRefs || (globalThis.__openDiaFindRefs = []);
+            // Cap at 1000 entries to bound memory in long-running agent
+            // sessions where find/find_by_* may be called repeatedly.
+            if (table.length >= 1000) table.length = 0;
+            // Stamp the URL so resolveRef's stale-page guard covers @find
+            // too (otherwise an SPA route change between find and click
+            // leaks past the URL check).
+            globalThis.__openDiaSnapshotUrl = window.location.href;
+            const ref = "@find" + table.length;
+            table.push(match);
+            result = { ok: true, ref, selector: sel, tag: match.tagName ? match.tagName.toLowerCase() : null };
+          }
+          break;
+        case "mouse_down":
+        case "mouse_up":
+        case "mouse_move":
+          {
+            const x = (data && data.x) ?? 0;
+            const y = (data && data.y) ?? 0;
+            const target = document.elementFromPoint(x, y) || document.body;
+            const type = action.replace("mouse_", "mouse");
+            const map = { mousedown: "mousedown", mouseup: "mouseup", mousemove: "mousemove" };
+            target.dispatchEvent(new MouseEvent(map[type] || "mousemove", {
+              bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0,
+            }));
+            result = { ok: true, action, x, y };
+          }
+          break;
+        case "mouse_wheel":
+          {
+            const dx = (data && data.dx) || 0;
+            const dy = (data && data.dy) || 0;
+            window.dispatchEvent(new WheelEvent("wheel", {
+              bubbles: true, cancelable: true, deltaX: dx, deltaY: dy,
+            }));
+            window.scrollBy({ left: dx, top: dy, behavior: "instant" });
+            result = { ok: true, dx, dy };
+          }
+          break;
+        case "keydown":
+        case "keyup":
+          {
+            const key = (data && data.key) || "";
+            if (!key) throw new Error(action + ": key required");
+            const target = document.activeElement || document.body;
+            target.dispatchEvent(new KeyboardEvent(action, {
+              bubbles: true, cancelable: true, key, code: key.length === 1 ? "Key" + key.toUpperCase() : key,
+            }));
+            result = { ok: true, action, key };
+          }
+          break;
+        case "keyboard_type":
+          // Like type but to whatever element currently has focus.
+          {
+            const text = (data && data.text) || "";
+            const target = document.activeElement || document.body;
+            for (const ch of text) {
+              target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: ch }));
+              target.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, cancelable: true, key: ch }));
+              if ("value" in target) target.value = (target.value || "") + ch;
+              else if (target.isContentEditable) target.textContent = (target.textContent || "") + ch;
+              target.dispatchEvent(new Event("input", { bubbles: true }));
+              target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: ch }));
+            }
+            result = { ok: true, length: text.length };
+          }
+          break;
+        case "keyboard_insert_text":
+          // Bulk insert without per-char keystrokes.
+          {
+            const text = (data && data.text) || "";
+            const target = document.activeElement || document.body;
+            if ("value" in target) target.value = (target.value || "") + text;
+            else if (target.isContentEditable) target.textContent = (target.textContent || "") + text;
+            target.dispatchEvent(new Event("input", { bubbles: true }));
+            target.dispatchEvent(new Event("change", { bubbles: true }));
+            result = { ok: true, length: text.length };
+          }
+          break;
+        case "swipe":
+          // Touch swipe simulation — start, move, end at viewport coords.
+          {
+            const x1 = (data && data.x1) ?? 0;
+            const y1 = (data && data.y1) ?? 0;
+            const x2 = (data && data.x2) ?? 0;
+            const y2 = (data && data.y2) ?? 0;
+            const target = document.elementFromPoint((x1 + x2) / 2, (y1 + y2) / 2) || document.body;
+            const touch = (x, y) => new Touch({
+              identifier: 0, target, clientX: x, clientY: y, pageX: x, pageY: y,
+            });
+            const ev = (type, x, y) => new TouchEvent(type, {
+              bubbles: true, cancelable: true,
+              touches: [touch(x, y)], targetTouches: [touch(x, y)], changedTouches: [touch(x, y)],
+            });
+            target.dispatchEvent(ev("touchstart", x1, y1));
+            target.dispatchEvent(ev("touchmove", x2, y2));
+            target.dispatchEvent(ev("touchend", x2, y2));
+            result = { ok: true, x1, y1, x2, y2 };
+          }
+          break;
+        case "pushstate":
+          // history.pushState passthrough for SPA tests.
+          {
+            history.pushState(data && data.state ? data.state : {}, "", (data && data.url) || window.location.href);
+            result = { ok: true, url: window.location.href };
+          }
+          break;
+        case "find_by_role":
+        case "find_by_text":
+        case "find_by_label":
+        case "find_by_placeholder":
+        case "find_by_testid":
+          // Each finder produces a fresh @refN slotted into the live
+          // ref table (so the agent can immediately click/fill it).
+          {
+            const all = Array.from(document.querySelectorAll("*"));
+            let match = null;
+            const needle = (data && data.query) || "";
+            if (action === "find_by_role") {
+              const role = (data && data.role) || needle;
+              match = all.find((el) => (el.getAttribute("role") || "").toLowerCase() === String(role).toLowerCase());
+            } else if (action === "find_by_text") {
+              const lc = needle.toLowerCase();
+              match = all.find((el) => (el.innerText || "").toLowerCase().trim() === lc) ||
+                      all.find((el) => (el.innerText || "").toLowerCase().includes(lc));
+            } else if (action === "find_by_label") {
+              const labels = Array.from(document.querySelectorAll("label"));
+              const labelEl = labels.find((l) => (l.textContent || "").trim().toLowerCase() === needle.toLowerCase());
+              if (labelEl) {
+                match = labelEl.htmlFor ? document.getElementById(labelEl.htmlFor) : labelEl.querySelector("input,textarea,select");
+              }
+            } else if (action === "find_by_placeholder") {
+              match = all.find((el) => el.getAttribute && (el.getAttribute("placeholder") || "") === needle);
+            } else if (action === "find_by_testid") {
+              match = document.querySelector('[data-testid="' + (needle || "").replace(/"/g, '\\"') + '"]');
+            }
+            if (!match) {
+              throw new Error(action + ": no match for \"" + needle + "\"");
+            }
+            const table = globalThis.__openDiaFindRefs || (globalThis.__openDiaFindRefs = []);
+            // Cap at 1000 entries to bound memory in long-running agent
+            // sessions where find/find_by_* may be called repeatedly.
+            if (table.length >= 1000) table.length = 0;
+            // Stamp the URL so resolveRef's stale-page guard covers @find
+            // too (otherwise an SPA route change between find and click
+            // leaks past the URL check).
+            globalThis.__openDiaSnapshotUrl = window.location.href;
+            const ref = "@find" + table.length;
+            table.push(match);
+            result = {
+              ok: true,
+              ref,
+              tag: match.tagName ? match.tagName.toLowerCase() : null,
+              text: ((match.innerText || "").trim().slice(0, 80)),
+            };
+          }
+          break;
+        case "dblclick":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "dblclick", globalThis.__openDiaFindRefs);
+            el.scrollIntoView({ block: "center" });
+            const rect = el.getBoundingClientRect();
+            const opts = { bubbles: true, cancelable: true,
+              clientX: rect.left + rect.width / 2,
+              clientY: rect.top + rect.height / 2,
+              button: 0, detail: 2 };
+            el.dispatchEvent(new MouseEvent("mousedown", opts));
+            el.dispatchEvent(new MouseEvent("mouseup", opts));
+            el.dispatchEvent(new MouseEvent("click", opts));
+            el.dispatchEvent(new MouseEvent("mousedown", opts));
+            el.dispatchEvent(new MouseEvent("mouseup", opts));
+            el.dispatchEvent(new MouseEvent("click", opts));
+            el.dispatchEvent(new MouseEvent("dblclick", opts));
+            result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "scroll_into_view":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "scroll_into_view", globalThis.__openDiaFindRefs);
+            el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+            result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "select":
+          // SPEC ab agent_browser_select — set <select>.value to one of the
+          // listed values, fire change.
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "select", globalThis.__openDiaFindRefs);
+            if (!el || el.tagName !== "SELECT") {
+              throw new Error("select: " + data.ref + " is not a <select>");
+            }
+            const values = Array.isArray(data.values) ? data.values : (data.value != null ? [data.value] : []);
+            if (!values.length) throw new Error("select: value/values required");
+            const before = el.value;
+            // Multi-select: pick all listed; single-select: first match.
+            for (const opt of el.options) opt.selected = false;
+            for (const opt of el.options) {
+              if (values.includes(opt.value) || values.includes(opt.label)) {
+                opt.selected = true;
+                if (!el.multiple) break;
+              }
+            }
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            result = { ok: true, ref: data.ref, before, after: el.value };
+          }
+          break;
+        case "drag":
+          {
+            const fromRef = data && data.from;
+            const toRef = data && data.to;
+            const a = globalThis.OpenDiaSnapshot.resolveRef(fromRef, globalThis.__openDiaSnapshotRefs, "drag", globalThis.__openDiaFindRefs);
+            const b = globalThis.OpenDiaSnapshot.resolveRef(toRef, globalThis.__openDiaSnapshotRefs, "drag", globalThis.__openDiaFindRefs);
+            const ar = a.getBoundingClientRect();
+            const br = b.getBoundingClientRect();
+            const ax = ar.left + ar.width / 2, ay = ar.top + ar.height / 2;
+            const bx = br.left + br.width / 2, by = br.top + br.height / 2;
+            const dt = new DataTransfer();
+            const fire = (target, type, x, y) => target.dispatchEvent(new DragEvent(type, {
+              bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer: dt,
+            }));
+            fire(a, "dragstart", ax, ay);
+            fire(b, "dragenter", bx, by);
+            fire(b, "dragover", bx, by);
+            fire(b, "drop", bx, by);
+            fire(a, "dragend", bx, by);
+            result = { ok: true, from: fromRef, to: toRef };
+          }
+          break;
+        case "get_text":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_text", globalThis.__openDiaFindRefs);
+            result = { ok: true, ref: data.ref, text: (el.innerText || "").trim() };
+          }
+          break;
+        case "get_html":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_html", globalThis.__openDiaFindRefs);
+            // SPEC §2.3 anti-temptation: this is the raw form. Caller
+            // should prefer snapshot/get_text. Cap returned bytes.
+            const max = (data && data.max_bytes) || 8000;
+            const html = el.outerHTML || "";
+            result = {
+              ok: true,
+              ref: data.ref,
+              html: html.length > max ? html.slice(0, max) + "[…truncated]" : html,
+              bytes: html.length,
+              truncated: html.length > max,
+            };
+          }
+          break;
+        case "get_value":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_value", globalThis.__openDiaFindRefs);
+            const v = "value" in el ? el.value : (el.textContent || "");
+            result = { ok: true, ref: data.ref, value: v };
+          }
+          break;
+        case "get_attr":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "get_attr", globalThis.__openDiaFindRefs);
+            const name = data && data.name;
+            if (!name) throw new Error("get_attr: name required");
+            result = { ok: true, ref: data.ref, name, value: el.getAttribute(name) };
+          }
+          break;
+        case "is_visible":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "is_visible", globalThis.__openDiaFindRefs);
+            const r = el.getBoundingClientRect();
+            const cs = window.getComputedStyle(el);
+            const visible = r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none" && cs.opacity !== "0";
+            result = { ok: true, ref: data.ref, visible };
+          }
+          break;
+        case "is_enabled":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "is_enabled", globalThis.__openDiaFindRefs);
+            result = { ok: true, ref: data.ref, enabled: !el.disabled };
+          }
+          break;
+        case "is_checked":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "is_checked", globalThis.__openDiaFindRefs);
+            result = { ok: true, ref: data.ref, checked: !!el.checked };
+          }
+          break;
+        case "hover":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "hover", globalThis.__openDiaFindRefs);
+            el.scrollIntoView({ block: "center" });
+            const rect = el.getBoundingClientRect();
+            const opts = { bubbles: true, cancelable: true,
+              clientX: rect.left + rect.width / 2,
+              clientY: rect.top + rect.height / 2 };
+            el.dispatchEvent(new MouseEvent("mouseover", opts));
+            el.dispatchEvent(new MouseEvent("mouseenter", opts));
+            el.dispatchEvent(new MouseEvent("mousemove", opts));
+            result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "focus":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "focus", globalThis.__openDiaFindRefs);
+            el.focus();
+            result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "check":
+        case "uncheck":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, action, globalThis.__openDiaFindRefs);
+            const want = action === "check";
+            if (typeof el.checked !== "boolean") {
+              throw new Error(action + ": " + data.ref + " is not a checkbox");
+            }
+            if (el.checked !== want) {
+              el.click(); // honors framework listeners
+            }
+            result = { ok: true, ref: data.ref, checked: !!el.checked };
+          }
+          break;
+        case "wait_for_selector":
+          {
+            const sel = data && data.selector;
+            const timeout = (data && data.timeout) || 10000;
+            if (!sel) throw new Error("wait_for_selector: selector required");
+            const start = Date.now();
+            // Poll loop; cheap and fully under our control.
+            while (Date.now() - start < timeout) {
+              if (document.querySelector(sel)) {
+                result = { ok: true, selector: sel, found: true, waited_ms: Date.now() - start };
+                break;
+              }
+              await new Promise((r) => setTimeout(r, 100));
+            }
+            if (!result) {
+              throw new Error("wait_for_selector: \"" + sel + "\" did not appear within " + timeout + "ms");
+            }
+          }
+          break;
+        case "wait_for_text":
+          {
+            const text = data && data.text;
+            const timeout = (data && data.timeout) || 10000;
+            if (!text) throw new Error("wait_for_text: text required");
+            const start = Date.now();
+            while (Date.now() - start < timeout) {
+              if ((document.body.innerText || "").includes(text)) {
+                result = { ok: true, text, found: true, waited_ms: Date.now() - start };
+                break;
+              }
+              await new Promise((r) => setTimeout(r, 150));
+            }
+            if (!result) {
+              throw new Error("wait_for_text: \"" + text + "\" did not appear within " + timeout + "ms");
+            }
+          }
+          break;
+        case "wait_ms":
+          {
+            const ms = (data && data.ms) || 0;
+            await new Promise((r) => setTimeout(r, ms));
+            result = { ok: true, ms };
+          }
+          break;
+        case "press":
+          // SPEC ab agent_browser_press — key event on the focused element.
+          // Accepts plain keys ("Enter") and chords ("Control+a").
+          {
+            const keyStr = data && data.key;
+            if (!keyStr) throw new Error("press: key required");
+            const target = document.activeElement || document.body;
+            const parts = String(keyStr).split("+");
+            const key = parts[parts.length - 1];
+            const init = {
+              key,
+              code: key.length === 1 ? "Key" + key.toUpperCase() : key,
+              bubbles: true,
+              cancelable: true,
+              ctrlKey: parts.includes("Control") || parts.includes("Ctrl"),
+              shiftKey: parts.includes("Shift"),
+              altKey: parts.includes("Alt"),
+              metaKey: parts.includes("Meta") || parts.includes("Cmd"),
+            };
+            target.dispatchEvent(new KeyboardEvent("keydown", init));
+            target.dispatchEvent(new KeyboardEvent("keypress", init));
+            target.dispatchEvent(new KeyboardEvent("keyup", init));
+            result = { ok: true, key: keyStr, target_tag: target.tagName ? target.tagName.toLowerCase() : null };
+          }
+          break;
+        case "scroll":
+          // SPEC ab agent_browser_scroll — window scroll.
+          {
+            const dir = (data && data.dir) || "down";
+            const px = (data && typeof data.pixels === "number") ? data.pixels : 800;
+            const dx = dir === "left" ? -px : dir === "right" ? px : 0;
+            const dy = dir === "up" ? -px : dir === "down" ? px : 0;
+            window.scrollBy({ left: dx, top: dy, behavior: "instant" });
+            result = { ok: true, dir, pixels: px, scroll_y: window.scrollY };
+          }
+          break;
+        case "type":
+          // SPEC ab agent_browser_type — keystroke-by-keystroke append.
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(data && data.ref, globalThis.__openDiaSnapshotRefs, "type", globalThis.__openDiaFindRefs);
+            const text = data && typeof data.text === "string" ? data.text : "";
+            el.scrollIntoView({ block: "center", inline: "center" });
+            el.focus();
+            for (const ch of text) {
+              const ev = (kind) => new KeyboardEvent(kind, {
+                key: ch, char: ch, bubbles: true, cancelable: true,
+              });
+              el.dispatchEvent(ev("keydown"));
+              el.dispatchEvent(ev("keypress"));
+              if ("value" in el) {
+                el.value = (el.value || "") + ch;
+              } else if (el.isContentEditable) {
+                el.textContent = (el.textContent || "") + ch;
+              }
+              el.dispatchEvent(new Event("input", { bubbles: true }));
+              el.dispatchEvent(ev("keyup"));
+            }
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            result = { ok: true, ref: data.ref, length: text.length };
+          }
           break;
         default:
           throw new Error(`Unknown action: ${action}`);
