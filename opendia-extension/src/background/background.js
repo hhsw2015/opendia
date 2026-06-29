@@ -3696,6 +3696,7 @@ async function waitForTabLoad(params) {
 async function cdpSetOffline(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("set_offline: no active tab");
+  await _cdpAttach(id);
   await _cdpSend(id, "Network.enable", {});
   await _cdpSend(id, "Network.emulateNetworkConditions", {
     offline: !!params.offline,
@@ -3709,6 +3710,7 @@ async function cdpSetOffline(params) {
 async function cdpProfilerStart(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("profiler_start: no active tab");
+  await _cdpAttach(id);
   await _cdpSend(id, "Profiler.enable", {});
   await _cdpSend(id, "Profiler.start", {});
   return { ok: true, tab_id: id };
@@ -3717,6 +3719,7 @@ async function cdpProfilerStart(params) {
 async function cdpProfilerStop(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("profiler_stop: no active tab");
+  await _cdpAttach(id);
   const r = await _cdpSend(id, "Profiler.stop", {});
   return { ok: true, tab_id: id, profile: r?.profile || null };
 }
@@ -3724,6 +3727,7 @@ async function cdpProfilerStop(params) {
 async function cdpTraceStart(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("trace_start: no active tab");
+  await _cdpAttach(id);
   await _cdpSend(id, "Tracing.start", {
     categories: (params.categories || ["devtools.timeline"]).join(","),
     options: "record-until-full",
@@ -3734,6 +3738,7 @@ async function cdpTraceStart(params) {
 async function cdpTraceStop(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("trace_stop: no active tab");
+  await _cdpAttach(id);
   await _cdpSend(id, "Tracing.end", {});
   return { ok: true, tab_id: id, note: "Tracing.end fired; events stream is consumed externally" };
 }
@@ -3742,6 +3747,7 @@ async function cdpTraceStop(params) {
 async function capturePdf(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("pdf: no active tab");
+  await _cdpAttach(id);
   const r = await _cdpSend(id, "Page.printToPDF", {});
   return { ok: true, tab_id: id, base64: r?.data || "", bytes: (r?.data || "").length };
 }
@@ -3822,6 +3828,7 @@ async function frameSwitch(params) {
 async function addInitScript(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("add_init_script: no active tab");
+  await _cdpAttach(id);
   await _cdpSend(id, "Page.enable", {});
   const r = await _cdpSend(id, "Page.addScriptToEvaluateOnNewDocument", { source: params.script || "" });
   return { ok: true, tab_id: id, id: r?.identifier || null };
@@ -3829,6 +3836,7 @@ async function addInitScript(params) {
 async function removeInitScript(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("remove_init_script: no active tab");
+  await _cdpAttach(id);
   if (!params.id) throw new Error("remove_init_script: id required");
   await _cdpSend(id, "Page.removeScriptToEvaluateOnNewDocument", { identifier: params.id });
   return { ok: true, tab_id: id, id: params.id };
@@ -3875,6 +3883,7 @@ async function cookiesSetCurl(params) {
 async function cdpSetHeaders(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("set_headers: no active tab");
+  await _cdpAttach(id);
   await _cdpSend(id, "Network.enable", {});
   await _cdpSend(id, "Network.setExtraHTTPHeaders", { headers: params.headers || {} });
   return { ok: true, tab_id: id, count: Object.keys(params.headers || {}).length };
@@ -3883,6 +3892,7 @@ async function cdpSetHeaders(params) {
 async function cdpSetCredentials(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("set_credentials: no active tab");
+  await _cdpAttach(id);
   if (typeof params.username !== "string" || typeof params.password !== "string") {
     throw new Error("set_credentials: username and password required (non-null strings)");
   }
@@ -3914,6 +3924,7 @@ const __routeState = new Map();
 async function cdpRouteInstall(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("network_route: no active tab");
+  await _cdpAttach(id);
   if (typeof params.pattern !== "string" || params.pattern.length > 1024) {
     throw new Error("network_route: pattern required (string ≤ 1024 chars)");
   }
@@ -3930,6 +3941,7 @@ async function cdpRouteInstall(params) {
 async function cdpRouteClear(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("network_unroute: no active tab");
+  await _cdpAttach(id);
   await _cdpSend(id, "Fetch.disable", {});
   __routeState.delete(id);
   return { ok: true, tab_id: id };
@@ -4134,6 +4146,7 @@ function devicePreset(name, tab_id) {
 async function cdpSetViewport(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("set_viewport: no active tab");
+  await _cdpAttach(id);
   await _cdpSend(id, "Emulation.setDeviceMetricsOverride", {
     width: params.width,
     height: params.height,
@@ -4146,6 +4159,7 @@ async function cdpSetViewport(params) {
 async function cdpSetGeo(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("set_geo: no active tab");
+  await _cdpAttach(id);
   await _cdpSend(id, "Emulation.setGeolocationOverride", {
     latitude: params.latitude,
     longitude: params.longitude,
@@ -4157,6 +4171,7 @@ async function cdpSetGeo(params) {
 async function cdpSetMedia(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!id) throw new Error("set_media: no active tab");
+  await _cdpAttach(id);
   await _cdpSend(id, "Emulation.setEmulatedMedia", {
     type: params.type || "",
     features: params.features || [],
