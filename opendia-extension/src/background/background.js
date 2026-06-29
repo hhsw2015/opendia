@@ -556,6 +556,51 @@ function getAvailableTools() {
       },
     },
     {
+      name: "hover",
+      description: "👆 Hover over an element by @refN; fires mouseover/mouseenter/mousemove. Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "focus",
+      description: "🎯 Focus an element by @refN. Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "check",
+      description: "☑️ Check a checkbox by @refN (no-op if already checked). Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "uncheck",
+      description: "☐ Uncheck a checkbox by @refN (no-op if already unchecked). Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "wait_ms",
+      description: "⏱️ Sleep for a fixed number of milliseconds.",
+      inputSchema: { type: "object", properties: { ms: { type: "number" }, tab_id: { type: "number" } }, required: ["ms"] },
+    },
+    {
+      name: "wait_for_selector",
+      description: "🔍 Wait until a CSS selector matches at least one element (or timeout).",
+      inputSchema: { type: "object", properties: { selector: { type: "string" }, timeout: { type: "number", default: 10000 }, tab_id: { type: "number" } }, required: ["selector"] },
+    },
+    {
+      name: "wait_for_text",
+      description: "📝 Wait until the body innerText contains the given substring (or timeout).",
+      inputSchema: { type: "object", properties: { text: { type: "string" }, timeout: { type: "number", default: 10000 }, tab_id: { type: "number" } }, required: ["text"] },
+    },
+    {
+      name: "wait_for_url",
+      description: "🌐 Wait until the active tab's URL matches the given substring/regex (or timeout).",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, regex: { type: "boolean", default: false }, timeout: { type: "number", default: 10000 }, tab_id: { type: "number" } }, required: ["url"] },
+    },
+    {
+      name: "wait_for_load",
+      description: "📡 Wait until the active tab's status === \"complete\" (or timeout).",
+      inputSchema: { type: "object", properties: { timeout: { type: "number", default: 10000 }, tab_id: { type: "number" } } },
+    },
+    {
       name: "tab_new",
       description: "🆕 Create a new tab. Alias for tab_create matching ab agent_browser_tab_new.",
       inputSchema: {
@@ -1664,6 +1709,33 @@ async function handleMCPRequest(message) {
         break;
       case "tab_new":
         result = await createTab({ url: params.url, active: params.active });
+        break;
+      case "hover":
+        result = await sendToContentScript('hover', params, params.tab_id);
+        break;
+      case "focus":
+        result = await sendToContentScript('focus', params, params.tab_id);
+        break;
+      case "check":
+        result = await sendToContentScript('check', params, params.tab_id);
+        break;
+      case "uncheck":
+        result = await sendToContentScript('uncheck', params, params.tab_id);
+        break;
+      case "wait_ms":
+        result = await sendToContentScript('wait_ms', params, params.tab_id);
+        break;
+      case "wait_for_selector":
+        result = await sendToContentScript('wait_for_selector', params, params.tab_id);
+        break;
+      case "wait_for_text":
+        result = await sendToContentScript('wait_for_text', params, params.tab_id);
+        break;
+      case "wait_for_url":
+        result = await waitForTabUrl(params);
+        break;
+      case "wait_for_load":
+        result = await waitForTabLoad(params);
         break;
       case "close":
         result = await closeTabs({ tab_id: params.tab_id });
@@ -2883,6 +2955,43 @@ async function tabGetField(tabId, field) {
   if (!resolved) throw new Error(field + ": no active tab");
   const tab = await chrome.tabs.get(resolved);
   return { ok: true, tab_id: resolved, [field]: tab[field] || "" };
+}
+
+// SPEC ab agent_browser_wait_for_url — poll chrome.tabs.get until URL
+// matches. Background-side because the URL changes during navigation
+// would invalidate any content-script poll.
+async function waitForTabUrl(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("wait_for_url: no active tab");
+  const target = String(params.url || "");
+  const isRegex = !!params.regex;
+  const re = isRegex ? new RegExp(target) : null;
+  const timeout = params.timeout || 10000;
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const tab = await chrome.tabs.get(id);
+    const u = tab.url || "";
+    if ((isRegex && re.test(u)) || (!isRegex && u.includes(target))) {
+      return { ok: true, url: u, waited_ms: Date.now() - start };
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  throw new Error("wait_for_url: \"" + target + "\" did not match within " + timeout + "ms");
+}
+
+async function waitForTabLoad(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("wait_for_load: no active tab");
+  const timeout = params.timeout || 10000;
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const tab = await chrome.tabs.get(id);
+    if (tab.status === "complete") {
+      return { ok: true, status: "complete", waited_ms: Date.now() - start };
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  throw new Error("wait_for_load: did not reach complete within " + timeout + "ms");
 }
 
 async function tabReload(tabId, bypassCache) {

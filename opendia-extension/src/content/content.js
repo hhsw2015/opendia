@@ -364,6 +364,88 @@ class BrowserAutomation {
             result = { ok: true, ref: data.ref };
           }
           break;
+        case "hover":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "hover");
+            el.scrollIntoView({ block: "center" });
+            const rect = el.getBoundingClientRect();
+            const opts = { bubbles: true, cancelable: true,
+              clientX: rect.left + rect.width / 2,
+              clientY: rect.top + rect.height / 2 };
+            el.dispatchEvent(new MouseEvent("mouseover", opts));
+            el.dispatchEvent(new MouseEvent("mouseenter", opts));
+            el.dispatchEvent(new MouseEvent("mousemove", opts));
+            result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "focus":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "focus");
+            el.focus();
+            result = { ok: true, ref: data.ref };
+          }
+          break;
+        case "check":
+        case "uncheck":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, action);
+            const want = action === "check";
+            if (typeof el.checked !== "boolean") {
+              throw new Error(action + ": " + data.ref + " is not a checkbox");
+            }
+            if (el.checked !== want) {
+              el.click(); // honors framework listeners
+            }
+            result = { ok: true, ref: data.ref, checked: !!el.checked };
+          }
+          break;
+        case "wait_for_selector":
+          {
+            const sel = data && data.selector;
+            const timeout = (data && data.timeout) || 10000;
+            if (!sel) throw new Error("wait_for_selector: selector required");
+            const start = Date.now();
+            // Poll loop; cheap and fully under our control.
+            while (Date.now() - start < timeout) {
+              if (document.querySelector(sel)) {
+                result = { ok: true, selector: sel, found: true, waited_ms: Date.now() - start };
+                break;
+              }
+              await new Promise((r) => setTimeout(r, 100));
+            }
+            if (!result) {
+              throw new Error("wait_for_selector: \"" + sel + "\" did not appear within " + timeout + "ms");
+            }
+          }
+          break;
+        case "wait_for_text":
+          {
+            const text = data && data.text;
+            const timeout = (data && data.timeout) || 10000;
+            if (!text) throw new Error("wait_for_text: text required");
+            const start = Date.now();
+            while (Date.now() - start < timeout) {
+              if ((document.body.innerText || "").includes(text)) {
+                result = { ok: true, text, found: true, waited_ms: Date.now() - start };
+                break;
+              }
+              await new Promise((r) => setTimeout(r, 150));
+            }
+            if (!result) {
+              throw new Error("wait_for_text: \"" + text + "\" did not appear within " + timeout + "ms");
+            }
+          }
+          break;
+        case "wait_ms":
+          {
+            const ms = (data && data.ms) || 0;
+            await new Promise((r) => setTimeout(r, ms));
+            result = { ok: true, ms };
+          }
+          break;
         case "press":
           // SPEC ab agent_browser_press — key event on the focused element.
           // Accepts plain keys ("Enter") and chords ("Control+a").
