@@ -301,6 +301,58 @@ class BrowserAutomation {
           // Health check for background tab content script readiness
           result = { status: "ready", timestamp: Date.now(), url: window.location.href };
           break;
+        case "errors":
+          // Buffered window.onerror / unhandledrejection capture.
+          {
+            if (!globalThis.__openDiaErrorBuf) {
+              globalThis.__openDiaErrorBuf = [];
+              window.addEventListener("error", (ev) => {
+                globalThis.__openDiaErrorBuf.push({
+                  type: "error",
+                  message: ev.message,
+                  filename: ev.filename,
+                  lineno: ev.lineno,
+                  colno: ev.colno,
+                  ts: Date.now(),
+                });
+                if (globalThis.__openDiaErrorBuf.length > 200) globalThis.__openDiaErrorBuf.shift();
+              });
+              window.addEventListener("unhandledrejection", (ev) => {
+                globalThis.__openDiaErrorBuf.push({
+                  type: "unhandledrejection",
+                  reason: ev.reason ? String(ev.reason) : null,
+                  ts: Date.now(),
+                });
+                if (globalThis.__openDiaErrorBuf.length > 200) globalThis.__openDiaErrorBuf.shift();
+              });
+            }
+            const flush = !!(data && data.flush !== false);
+            const errors = globalThis.__openDiaErrorBuf.slice();
+            if (flush) globalThis.__openDiaErrorBuf.length = 0;
+            result = { ok: true, errors, count: errors.length };
+          }
+          break;
+        case "highlight":
+          {
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "highlight");
+            const color = (data && data.color) || "magenta";
+            const prev = el.style.outline;
+            el.style.outline = "3px solid " + color;
+            const ms = (data && data.duration_ms) || 1500;
+            setTimeout(() => { el.style.outline = prev; }, ms);
+            result = { ok: true, ref: data.ref, color, duration_ms: ms };
+          }
+          break;
+        case "remove_init_script":
+          // We never set init scripts (those would need add_init_script's
+          // CDP path). Returning ok keeps the parity surface honest.
+          result = { ok: true, removed: 0, note: "no init scripts active" };
+          break;
+        case "frame_main":
+          // We always run in the top frame's content script; report it.
+          result = { ok: true, current: window.top === window ? "main" : "child" };
+          break;
         case "console":
           // Buffered console.log/warn/error. Page bootstrap installs the
           // hook (idempotent); the WS op flushes & returns it.

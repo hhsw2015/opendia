@@ -556,6 +556,46 @@ function getAvailableTools() {
       },
     },
     {
+      name: "deny",
+      description: "❎ Alias for dialog_dismiss — pre-arms the next confirm() to return false.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "diff_url",
+      description: "🌐Δ Return the URL change since the last call (or null).",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "errors",
+      description: "🐞 Return buffered window.onerror / unhandledrejection events from the page (last 200).",
+      inputSchema: { type: "object", properties: { flush: { type: "boolean", default: true }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "download",
+      description: "📥 chrome.downloads.download wrapper. Pass {url, filename?}.",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, filename: { type: "string" } }, required: ["url"] },
+    },
+    {
+      name: "highlight",
+      description: "🎯 Outline @refN with a color for {duration_ms} (default 1500). Pair with snapshot.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, color: { type: "string" }, duration_ms: { type: "number" }, tab_id: { type: "number" } }, required: ["ref"] },
+    },
+    {
+      name: "frame_main",
+      description: "🖼️ Switch context to the top frame (no-op since the WS pipe is already top-frame-bound).",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "remove_init_script",
+      description: "🧹 Reset any add_init_script overrides. No-op when no init scripts were set.",
+      inputSchema: { type: "object", properties: { id: { type: "string" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "diff_screenshot",
+      description: "📸Δ Capture viewport, byte-diff against the last screenshot. Returns equal:bool + sizes.",
+      inputSchema: { type: "object", properties: { format: { type: "string", default: "jpeg" }, quality: { type: "number", default: 70 }, tab_id: { type: "number" } } },
+    },
+    {
       name: "console",
       description: "📜 Return buffered console.log/warn/error/info/debug messages from the page (last 500). Pass {flush:false} to peek without clearing.",
       inputSchema: { type: "object", properties: { flush: { type: "boolean", default: true }, tab_id: { type: "number" } } },
@@ -1957,6 +1997,10 @@ async function handleMCPRequest(message) {
       case "find_by_placeholder":
       case "find_by_testid":
       case "find":
+      case "errors":
+      case "highlight":
+      case "remove_init_script":
+      case "frame_main":
       case "console":
       case "vitals":
       case "inspect":
@@ -1995,7 +2039,18 @@ async function handleMCPRequest(message) {
         result = await prearmDialog(params.tab_id, "accept", params.text);
         break;
       case "dialog_dismiss":
+      case "deny":
         result = await prearmDialog(params.tab_id, "dismiss", null);
+        break;
+      case "diff_url":
+        result = await diffUrl(params);
+        break;
+      case "download":
+        result = await chrome.downloads.download({ url: params.url, filename: params.filename })
+                       .then((id) => ({ ok: true, download_id: id, url: params.url }));
+        break;
+      case "diff_screenshot":
+        result = await diffScreenshot(params);
         break;
       case "cookies_get":
         result = await cookiesGet(params);
@@ -3291,6 +3346,35 @@ async function waitForTabLoad(params) {
 }
 
 // SPEC ab cookies_* — chrome.cookies API.
+// SPEC ab diff_url — track the URL across calls.
+const __urlState = new Map();
+async function diffUrl(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("diff_url: no active tab");
+  const tab = await chrome.tabs.get(id);
+  const prev = __urlState.get(id) ?? null;
+  __urlState.set(id, tab.url || "");
+  return { ok: true, prev, current: tab.url || "", changed: prev !== null && prev !== tab.url };
+}
+
+// SPEC ab diff_screenshot — capture viewport, byte-diff against last
+// stored screenshot for the tab. byte-equal is enough for "did anything
+// change" sanity; pixel-perfect diff would require canvas in MV3 SW.
+const __shotState = new Map();
+async function diffScreenshot(params) {
+  const out = await captureScreenshot(params);
+  const dataUrl = out?.data_url || out?.image || "";
+  const id = params.tab_id ?? "active";
+  const prev = __shotState.get(id) ?? null;
+  __shotState.set(id, dataUrl);
+  return {
+    ok: true,
+    equal: prev !== null && prev === dataUrl,
+    bytes_now: dataUrl.length,
+    bytes_prev: prev ? prev.length : 0,
+  };
+}
+
 async function cookiesGet(params) {
   const url = params.url ?? await activeTabUrl(params.tab_id);
   const cookies = await chrome.cookies.getAll({ url });
