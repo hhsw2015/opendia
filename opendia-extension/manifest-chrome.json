@@ -39,6 +39,13 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "js": ["src/content/react-hook-inject.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
       "js": ["src/polyfill/browser-polyfill.min.js", "src/content/snapshot.js", "src/content/content.js"],
       "run_at": "document_idle",
       "all_frames": true

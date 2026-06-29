@@ -10,6 +10,9 @@ if (typeof window.OpenDiaContentScriptLoaded !== 'undefined') {
 } else {
   window.OpenDiaContentScriptLoaded = true;
 
+// (React DevTools hook is installed by src/content/react-hook-inject.js
+// at document_start in MAIN world via manifest content_scripts entry.)
+
 // SPEC §4.1 — invalidate live ref tables on navigation. Without this,
 // @refN from the prior snapshot resolves to a detached DOM node after
 // SPA route changes, and click/fill/etc. silently no-op.

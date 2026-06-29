@@ -4197,12 +4197,16 @@ async function pageEval(params) {
   const r = await chrome.scripting.executeScript({
     target: { tabId: id },
     world: "MAIN",
-    func: (src) => {
+    func: async (src) => {
       try {
-        // Wrap as an IIFE so multi-statement scripts work; the script
-        // must `return` its result.
+        // Wrap as an async IIFE so the script body can use top-level
+        // await / return, and so a returned Promise is unwrapped here
+        // before serialisation back to background. Without await on the
+        // outer call, fetch() / async ops would serialise as {}.
         // eslint-disable-next-line no-new-func
-        return { ok: true, value: new Function("return (function(){ " + src + " })();")() };
+        const fn = new Function("return (async function(){ " + src + " })();");
+        const value = await fn();
+        return { ok: true, value };
       } catch (e) {
         return { ok: false, error: String(e) };
       }
