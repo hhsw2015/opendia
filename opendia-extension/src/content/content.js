@@ -301,6 +301,50 @@ class BrowserAutomation {
           // Health check for background tab content script readiness
           result = { status: "ready", timestamp: Date.now(), url: window.location.href };
           break;
+        case "storage_set":
+          {
+            const kind = (data && data.kind) || "local";
+            const key = data && data.key;
+            const value = data && data.value;
+            if (!key) throw new Error("storage_set: key required");
+            const store = kind === "session" ? window.sessionStorage : window.localStorage;
+            store.setItem(key, String(value ?? ""));
+            result = { ok: true, kind, key, bytes: String(value ?? "").length };
+          }
+          break;
+        case "storage_clear":
+          {
+            const kind = (data && data.kind) || "local";
+            const store = kind === "session" ? window.sessionStorage : window.localStorage;
+            const before = store.length;
+            store.clear();
+            result = { ok: true, kind, cleared: before };
+          }
+          break;
+        case "upload":
+          {
+            // Build a DataTransfer over the supplied {name, mime, base64}
+            // file objects and dispatch on the @refN <input type=file>.
+            const el = globalThis.OpenDiaSnapshot.resolveRef(
+              data && data.ref, globalThis.__openDiaSnapshotRefs, "upload");
+            if (!el || el.type !== "file") {
+              throw new Error("upload: " + data.ref + " is not <input type=file>");
+            }
+            const files = Array.isArray(data.files) ? data.files : [];
+            if (!files.length) throw new Error("upload: files[] required");
+            const dt = new DataTransfer();
+            for (const f of files) {
+              const bin = atob(f.base64 || "");
+              const buf = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+              dt.items.add(new File([buf], f.name || "upload.bin", { type: f.mime || "application/octet-stream" }));
+            }
+            el.files = dt.files;
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            result = { ok: true, ref: data.ref, count: files.length };
+          }
+          break;
         case "storage_get":
           // Read localStorage / sessionStorage. Not all keys; just one.
           {

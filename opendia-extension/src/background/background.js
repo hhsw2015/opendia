@@ -556,6 +556,121 @@ function getAvailableTools() {
       },
     },
     {
+      name: "storage_set",
+      description: "💾✏️ DANGEROUS: write one localStorage/sessionStorage key. {key, value, kind: \"local\"|\"session\"}.",
+      inputSchema: { type: "object", properties: { key: { type: "string" }, value: {}, kind: { type: "string", enum: ["local", "session"], default: "local" }, tab_id: { type: "number" } }, required: ["key"] },
+    },
+    {
+      name: "storage_clear",
+      description: "💾🗑️ DANGEROUS: clear all localStorage or sessionStorage entries.",
+      inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["local", "session"], default: "local" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "cookies_set",
+      description: "🍪✏️ DANGEROUS: set a cookie via chrome.cookies.set. Pass {name, value, url|domain, path?, expirationDate?, secure?, httpOnly?, sameSite?}.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, value: { type: "string" }, url: { type: "string" }, domain: { type: "string" }, path: { type: "string" }, expirationDate: { type: "number" }, secure: { type: "boolean" }, httpOnly: { type: "boolean" }, sameSite: { type: "string" } }, required: ["name", "value"] },
+    },
+    {
+      name: "cookies_set_curl",
+      description: "🍪✏️ DANGEROUS: parse a curl-style \"Set-Cookie:\" header and set the resulting cookies for the active tab's URL.",
+      inputSchema: { type: "object", properties: { header: { type: "string" }, url: { type: "string" } }, required: ["header"] },
+    },
+    {
+      name: "set_headers",
+      description: "📋 DANGEROUS: override extra HTTP headers for the tab via CDP Network.setExtraHTTPHeaders.",
+      inputSchema: { type: "object", properties: { headers: { type: "object" }, tab_id: { type: "number" } }, required: ["headers"] },
+    },
+    {
+      name: "set_credentials",
+      description: "🔐 DANGEROUS: set HTTP Basic auth via CDP Network.setExtraHTTPHeaders Authorization.",
+      inputSchema: { type: "object", properties: { username: { type: "string" }, password: { type: "string" }, tab_id: { type: "number" } }, required: ["username", "password"] },
+    },
+    {
+      name: "network_request",
+      description: "🌐 DANGEROUS: fetch() from background context (no CORS). Pass {url, method?, headers?, body?, credentials?}.",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, method: { type: "string" }, headers: { type: "object" }, body: { type: "string" }, credentials: { type: "string" } }, required: ["url"] },
+    },
+    {
+      name: "network_route",
+      description: "🌐 DANGEROUS: install a CDP Fetch.enable + Fetch.fulfillRequest interceptor. {pattern, response: {body, status?, headers?}}.",
+      inputSchema: { type: "object", properties: { pattern: { type: "string" }, response: { type: "object" }, tab_id: { type: "number" } }, required: ["pattern", "response"] },
+    },
+    {
+      name: "network_unroute",
+      description: "🌐 DANGEROUS: clear CDP Fetch.disable for the tab.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "auth_save",
+      description: "🔐 DANGEROUS: persist {name, kind, payload} to chrome.storage.local under key auth/<name>.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, kind: { type: "string" }, payload: { type: "object" } }, required: ["name", "kind", "payload"] },
+    },
+    {
+      name: "auth_login",
+      description: "🔐 DANGEROUS: load a saved auth bundle and apply it (cookies_set + headers).",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, tab_id: { type: "number" } }, required: ["name"] },
+    },
+    {
+      name: "auth_show",
+      description: "🔐 DANGEROUS: read one saved auth bundle.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    },
+    {
+      name: "auth_list",
+      description: "🔐 List saved auth bundle names.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "auth_delete",
+      description: "🔐 DANGEROUS: delete one saved auth bundle.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    },
+    {
+      name: "state_save",
+      description: "💼 DANGEROUS: snapshot cookies+localStorage+sessionStorage for the active URL into chrome.storage.local under state/<name>.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, tab_id: { type: "number" } }, required: ["name"] },
+    },
+    {
+      name: "state_load",
+      description: "💼 DANGEROUS: restore one saved state snapshot for the active URL.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, tab_id: { type: "number" } }, required: ["name"] },
+    },
+    {
+      name: "state_show",
+      description: "💼 Read one saved state snapshot.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    },
+    {
+      name: "state_list",
+      description: "💼 List saved state names.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "state_clear",
+      description: "💼 DANGEROUS: delete one saved state snapshot.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    },
+    {
+      name: "state_clean",
+      description: "💼 DANGEROUS: delete ALL saved state snapshots.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "state_rename",
+      description: "💼 Rename a saved state snapshot.",
+      inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, required: ["from", "to"] },
+    },
+    {
+      name: "upload",
+      description: "📤 DANGEROUS: attach files[] (each {name, mime, base64}) to an <input type=file> by @refN.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, files: { type: "array", items: { type: "object" } }, tab_id: { type: "number" } }, required: ["ref", "files"] },
+    },
+    {
+      name: "eval",
+      description: "⚠️ DANGEROUS: execute arbitrary JavaScript in the page's MAIN world via chrome.scripting.executeScript. Returns the function's return value (JSON-serializable).",
+      inputSchema: { type: "object", properties: { script: { type: "string" }, tab_id: { type: "number" } }, required: ["script"] },
+    },
+    {
       name: "storage_get",
       description: "💾 Read one localStorage/sessionStorage key. Pass {key, kind: \"local\"|\"session\"}.",
       inputSchema: { type: "object", properties: { key: { type: "string" }, kind: { type: "string", enum: ["local", "session"], default: "local" }, tab_id: { type: "number" } }, required: ["key"] },
@@ -2102,6 +2217,9 @@ async function handleMCPRequest(message) {
       case "react_renders_stop":
       case "react_suspense":
       case "storage_get":
+      case "storage_set":
+      case "storage_clear":
+      case "upload":
       case "dialog_status":
       case "console":
       case "vitals":
@@ -2195,6 +2313,66 @@ async function handleMCPRequest(message) {
         break;
       case "cookies_clear":
         result = await cookiesClear(params);
+        break;
+      case "cookies_set":
+        result = await cookiesSet(params);
+        break;
+      case "cookies_set_curl":
+        result = await cookiesSetCurl(params);
+        break;
+      case "set_headers":
+        result = await cdpSetHeaders(params);
+        break;
+      case "set_credentials":
+        result = await cdpSetCredentials(params);
+        break;
+      case "network_request":
+        result = await backgroundFetch(params);
+        break;
+      case "network_route":
+        result = await cdpRouteInstall(params);
+        break;
+      case "network_unroute":
+        result = await cdpRouteClear(params);
+        break;
+      case "auth_save":
+        result = await authSave(params);
+        break;
+      case "auth_login":
+        result = await authLogin(params);
+        break;
+      case "auth_show":
+        result = await authShow(params);
+        break;
+      case "auth_list":
+        result = await authList();
+        break;
+      case "auth_delete":
+        result = await authDelete(params);
+        break;
+      case "state_save":
+        result = await stateSave(params);
+        break;
+      case "state_load":
+        result = await stateLoad(params);
+        break;
+      case "state_show":
+        result = await stateShow(params);
+        break;
+      case "state_list":
+        result = await stateList();
+        break;
+      case "state_clear":
+        result = await stateClear(params);
+        break;
+      case "state_clean":
+        result = await stateClean();
+        break;
+      case "state_rename":
+        result = await stateRename(params);
+        break;
+      case "eval":
+        result = await pageEval(params);
         break;
       case "get_cdp_url":
         result = await getCdpUrl(params);
@@ -3608,6 +3786,219 @@ async function diffScreenshot(params) {
     bytes_now: dataUrl.length,
     bytes_prev: prev ? prev.length : 0,
   };
+}
+
+// SPEC ab cookies_set — DANGEROUS_TOOLS, user-approved. chrome.cookies.set.
+async function cookiesSet(params) {
+  const opts = { name: params.name, value: String(params.value ?? "") };
+  if (params.url) opts.url = params.url;
+  else if (params.domain) opts.domain = params.domain;
+  else opts.url = await activeTabUrl();
+  for (const k of ["path", "expirationDate", "secure", "httpOnly", "sameSite"]) {
+    if (params[k] !== undefined) opts[k] = params[k];
+  }
+  const cookie = await chrome.cookies.set(opts);
+  return { ok: true, cookie };
+}
+
+// SPEC ab cookies_set_curl — parse one Set-Cookie:-like header.
+async function cookiesSetCurl(params) {
+  const url = params.url || (await activeTabUrl());
+  const header = String(params.header || "").replace(/^Set-Cookie:\s*/i, "");
+  const parts = header.split(";").map((s) => s.trim()).filter(Boolean);
+  const [first, ...rest] = parts;
+  const eq = first.indexOf("=");
+  if (eq === -1) throw new Error("cookies_set_curl: malformed header");
+  const opts = { url, name: first.slice(0, eq), value: first.slice(eq + 1) };
+  for (const seg of rest) {
+    const [k, v] = seg.includes("=") ? seg.split("=", 2) : [seg, ""];
+    const lk = k.toLowerCase();
+    if (lk === "path") opts.path = v;
+    else if (lk === "domain") opts.domain = v;
+    else if (lk === "secure") opts.secure = true;
+    else if (lk === "httponly") opts.httpOnly = true;
+    else if (lk === "samesite") opts.sameSite = v.toLowerCase();
+    else if (lk === "expires") opts.expirationDate = Math.floor(Date.parse(v) / 1000);
+    else if (lk === "max-age") opts.expirationDate = Math.floor(Date.now() / 1000) + parseInt(v, 10);
+  }
+  const cookie = await chrome.cookies.set(opts);
+  return { ok: true, cookie };
+}
+
+// SPEC ab set_headers / set_credentials — CDP Network override.
+async function cdpSetHeaders(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_headers: no active tab");
+  await _cdpSend(id, "Network.enable", {});
+  await _cdpSend(id, "Network.setExtraHTTPHeaders", { headers: params.headers || {} });
+  return { ok: true, tab_id: id, count: Object.keys(params.headers || {}).length };
+}
+
+async function cdpSetCredentials(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_credentials: no active tab");
+  const auth = "Basic " + btoa(params.username + ":" + params.password);
+  await _cdpSend(id, "Network.enable", {});
+  await _cdpSend(id, "Network.setExtraHTTPHeaders", { headers: { Authorization: auth } });
+  return { ok: true, tab_id: id, username: params.username };
+}
+
+// SPEC ab network_request — DANGEROUS unrestricted fetch.
+async function backgroundFetch(params) {
+  const r = await fetch(params.url, {
+    method: params.method || "GET",
+    headers: params.headers || {},
+    body: params.body,
+    credentials: params.credentials || "include",
+  });
+  const text = await r.text();
+  const headers = {};
+  for (const [k, v] of r.headers.entries()) headers[k] = v;
+  return { ok: true, status: r.status, headers, body: text, bytes: text.length };
+}
+
+// SPEC ab network_route / network_unroute — CDP Fetch.* interceptor.
+const __routeState = new Map();
+async function cdpRouteInstall(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("network_route: no active tab");
+  await _cdpSend(id, "Fetch.enable", {
+    patterns: [{ urlPattern: params.pattern, requestStage: "Request" }],
+  });
+  __routeState.set(id, params);
+  return { ok: true, tab_id: id, pattern: params.pattern, note: "Fetch.requestPaused events handled out-of-band" };
+}
+async function cdpRouteClear(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("network_unroute: no active tab");
+  await _cdpSend(id, "Fetch.disable", {});
+  __routeState.delete(id);
+  return { ok: true, tab_id: id };
+}
+
+// SPEC ab auth_* — chrome.storage.local credential vault.
+async function authSave(params) {
+  const key = "auth/" + params.name;
+  await chrome.storage.local.set({ [key]: { kind: params.kind, payload: params.payload, savedAt: Date.now() } });
+  return { ok: true, name: params.name };
+}
+async function authShow(params) {
+  const key = "auth/" + params.name;
+  const r = await chrome.storage.local.get(key);
+  if (!r[key]) throw new Error("auth_show: \"" + params.name + "\" not found");
+  return { ok: true, name: params.name, ...r[key] };
+}
+async function authList() {
+  const r = await chrome.storage.local.get(null);
+  return { ok: true, names: Object.keys(r).filter((k) => k.startsWith("auth/")).map((k) => k.slice(5)) };
+}
+async function authDelete(params) {
+  const key = "auth/" + params.name;
+  await chrome.storage.local.remove(key);
+  return { ok: true, name: params.name };
+}
+async function authLogin(params) {
+  const bundle = await authShow(params);
+  // Apply bundle.payload to the active tab. payload shape:
+  //   { cookies: [chrome.cookies.set args], headers: {…} }
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("auth_login: no active tab");
+  if (Array.isArray(bundle.payload?.cookies)) {
+    for (const c of bundle.payload.cookies) await chrome.cookies.set(c);
+  }
+  if (bundle.payload?.headers) {
+    await _cdpSend(id, "Network.enable", {});
+    await _cdpSend(id, "Network.setExtraHTTPHeaders", { headers: bundle.payload.headers });
+  }
+  return { ok: true, name: params.name, applied: { cookies: (bundle.payload?.cookies || []).length, headers: !!bundle.payload?.headers } };
+}
+
+// SPEC ab state_* — full session snapshot.
+async function stateSave(params) {
+  const url = await activeTabUrl(params.tab_id);
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  const cookies = await chrome.cookies.getAll({ url });
+  const storage = await chrome.scripting.executeScript({
+    target: { tabId: id },
+    func: () => ({
+      local: Object.fromEntries(Array.from({ length: localStorage.length }, (_, i) => [localStorage.key(i), localStorage.getItem(localStorage.key(i))])),
+      session: Object.fromEntries(Array.from({ length: sessionStorage.length }, (_, i) => [sessionStorage.key(i), sessionStorage.getItem(sessionStorage.key(i))])),
+    }),
+  });
+  const key = "state/" + params.name;
+  await chrome.storage.local.set({ [key]: { url, cookies, storage: storage[0]?.result || { local: {}, session: {} }, savedAt: Date.now() } });
+  return { ok: true, name: params.name, url, cookies: cookies.length };
+}
+async function stateShow(params) {
+  const key = "state/" + params.name;
+  const r = await chrome.storage.local.get(key);
+  if (!r[key]) throw new Error("state_show: \"" + params.name + "\" not found");
+  return { ok: true, name: params.name, ...r[key] };
+}
+async function stateList() {
+  const r = await chrome.storage.local.get(null);
+  return { ok: true, names: Object.keys(r).filter((k) => k.startsWith("state/")).map((k) => k.slice(6)) };
+}
+async function stateLoad(params) {
+  const bundle = await stateShow(params);
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("state_load: no active tab");
+  for (const c of bundle.cookies || []) {
+    // chrome.cookies.set rejects expirationDate in the past; clamp.
+    const opts = { url: c.url || bundle.url, name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite };
+    if (c.expirationDate && c.expirationDate > Date.now() / 1000) opts.expirationDate = c.expirationDate;
+    try { await chrome.cookies.set(opts); } catch { /* skip cookies the browser refuses */ }
+  }
+  await chrome.scripting.executeScript({
+    target: { tabId: id },
+    func: (s) => {
+      localStorage.clear(); sessionStorage.clear();
+      for (const [k, v] of Object.entries(s.local || {})) localStorage.setItem(k, v);
+      for (const [k, v] of Object.entries(s.session || {})) sessionStorage.setItem(k, v);
+    },
+    args: [bundle.storage || { local: {}, session: {} }],
+  });
+  return { ok: true, name: params.name, cookies: (bundle.cookies || []).length };
+}
+async function stateClear(params) {
+  const key = "state/" + params.name;
+  await chrome.storage.local.remove(key);
+  return { ok: true, name: params.name };
+}
+async function stateClean() {
+  const r = await chrome.storage.local.get(null);
+  const keys = Object.keys(r).filter((k) => k.startsWith("state/"));
+  if (keys.length) await chrome.storage.local.remove(keys);
+  return { ok: true, removed: keys.length };
+}
+async function stateRename(params) {
+  const fromKey = "state/" + params.from;
+  const toKey = "state/" + params.to;
+  const r = await chrome.storage.local.get(fromKey);
+  if (!r[fromKey]) throw new Error("state_rename: \"" + params.from + "\" not found");
+  await chrome.storage.local.set({ [toKey]: r[fromKey] });
+  await chrome.storage.local.remove(fromKey);
+  return { ok: true, from: params.from, to: params.to };
+}
+
+// SPEC ab eval — DANGEROUS. chrome.scripting.executeScript MAIN world.
+async function pageEval(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("eval: no active tab");
+  const r = await chrome.scripting.executeScript({
+    target: { tabId: id },
+    world: "MAIN",
+    func: (src) => {
+      try {
+        // eslint-disable-next-line no-new-func
+        return { ok: true, value: new Function("return (" + src + ");")() };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+    args: [params.script],
+  });
+  return r[0]?.result || { ok: false, error: "no result" };
 }
 
 async function cookiesGet(params) {
