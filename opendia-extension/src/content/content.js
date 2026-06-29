@@ -904,8 +904,29 @@ class BrowserAutomation {
             let match = null;
             const needle = (data && data.query) || "";
             if (action === "find_by_role") {
-              const role = (data && data.role) || needle;
-              match = all.find((el) => (el.getAttribute("role") || "").toLowerCase() === String(role).toLowerCase());
+              const role = String((data && data.role) || needle || "").toLowerCase();
+              if (!role) throw new Error("find_by_role: role or query required");
+              // Accept explicit role= attr AND implicit roles by tag.
+              const implicitTagForRole = {
+                button: ["button"],
+                link: ["a"],
+                checkbox: ["input"],
+                radio: ["input"],
+                textbox: ["input", "textarea"],
+                combobox: ["select"],
+                heading: ["h1", "h2", "h3", "h4", "h5", "h6"],
+              };
+              const allowedTags = implicitTagForRole[role] || [];
+              match = all.find((el) => {
+                const explicit = (el.getAttribute("role") || "").toLowerCase();
+                if (explicit === role) return true;
+                const tag = el.tagName.toLowerCase();
+                if (!allowedTags.includes(tag)) return false;
+                if (role === "checkbox") return el.type === "checkbox";
+                if (role === "radio") return el.type === "radio";
+                if (role === "textbox") return tag === "textarea" || (el.type !== "checkbox" && el.type !== "radio" && el.type !== "submit" && el.type !== "button");
+                return true;
+              });
             } else if (action === "find_by_text") {
               const lc = needle.toLowerCase();
               match = all.find((el) => (el.innerText || "").toLowerCase().trim() === lc) ||

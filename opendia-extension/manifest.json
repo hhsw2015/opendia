@@ -15,6 +15,7 @@
     "storage",
     "scripting",
     "webNavigation",
+    "webRequest",
     "notifications",
     "bookmarks",
     "history",

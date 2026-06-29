@@ -4109,7 +4109,8 @@ async function prearmDialog(tabId, action, promptText) {
       window.confirm = function () { restore(); return a === "accept"; };
       window.prompt = function () { restore(); return a === "accept" ? (t || "") : null; };
     },
-    args: [action, promptText],
+    // chrome.scripting.executeScript rejects undefined in args[]; coerce.
+    args: [action, promptText ?? ""],
   });
   return { ok: true, action, tab_id: id };
 }
