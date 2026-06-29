@@ -301,6 +301,24 @@ class BrowserAutomation {
           // Health check for background tab content script readiness
           result = { status: "ready", timestamp: Date.now(), url: window.location.href };
           break;
+        case "storage_get":
+          // Read localStorage / sessionStorage. Not all keys; just one.
+          {
+            const kind = (data && data.kind) || "local";
+            const key = data && data.key;
+            if (!key) throw new Error("storage_get: key required");
+            const store = kind === "session" ? window.sessionStorage : window.localStorage;
+            result = { ok: true, kind, key, value: store.getItem(key) };
+          }
+          break;
+        case "dialog_status":
+          {
+            // We don't track armed dialog state across calls in content
+            // (the prearm hook lives in MAIN world); approximate with
+            // "armed:false" for ergonomics.
+            result = { ok: true, armed: false, note: "dialog_status: prearm lives in MAIN world; status unobservable from content script" };
+          }
+          break;
         case "react_tree":
         case "react_inspect":
         case "react_renders_start":

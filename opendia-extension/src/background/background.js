@@ -556,6 +556,66 @@ function getAvailableTools() {
       },
     },
     {
+      name: "storage_get",
+      description: "💾 Read one localStorage/sessionStorage key. Pass {key, kind: \"local\"|\"session\"}.",
+      inputSchema: { type: "object", properties: { key: { type: "string" }, kind: { type: "string", enum: ["local", "session"], default: "local" }, tab_id: { type: "number" } }, required: ["key"] },
+    },
+    {
+      name: "dialog_status",
+      description: "❓ Best-effort armed-dialog status (always ok:false from content script — see field 'note').",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "wait_for_download",
+      description: "📥⏳ Wait for the next chrome.downloads completion (or timeout).",
+      inputSchema: { type: "object", properties: { timeout: { type: "number", default: 30000 } } },
+    },
+    {
+      name: "frame_switch",
+      description: "🖼️ Switch the WS pipe's content-script target to a frame by URL substring or ID. No-op when not yet supported by the WS bridge.",
+      inputSchema: { type: "object", properties: { match: { type: "string" }, frame_id: { type: "number" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "window_new",
+      description: "🪟 Create a new browser window (chrome.windows.create). Pass {url} optional.",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, focused: { type: "boolean", default: true } } },
+    },
+    {
+      name: "set_offline",
+      description: "📵 Toggle offline mode via CDP Network.emulateNetworkConditions. Pass {offline:bool}.",
+      inputSchema: { type: "object", properties: { offline: { type: "boolean" }, tab_id: { type: "number" } }, required: ["offline"] },
+    },
+    {
+      name: "profiler_start",
+      description: "⏱️ Start a JS profile via CDP Profiler.enable + Profiler.start.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "profiler_stop",
+      description: "⏱️ Stop the JS profile and return the CPU profile JSON via CDP Profiler.stop.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "network_har_start",
+      description: "🌐⏺️ Begin per-tab HAR-style capture (uses webRequest under the hood).",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "network_har_stop",
+      description: "🌐⏹️ Stop and return the captured request log.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "trace_start",
+      description: "🔬 Start a CDP Tracing.start session.",
+      inputSchema: { type: "object", properties: { categories: { type: "array", items: { type: "string" } }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "trace_stop",
+      description: "🔬 Stop CDP tracing and return the collected events.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
       name: "pdf",
       description: "📄 Print the active tab to a base64 PDF via CDP Page.printToPDF.",
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
@@ -2041,6 +2101,8 @@ async function handleMCPRequest(message) {
       case "react_renders_start":
       case "react_renders_stop":
       case "react_suspense":
+      case "storage_get":
+      case "dialog_status":
       case "console":
       case "vitals":
       case "inspect":
@@ -2096,7 +2158,37 @@ async function handleMCPRequest(message) {
         result = await capturePdf(params);
         break;
       case "network_requests":
+      case "network_har_stop":
         result = await flushNetworkBuffer(params);
+        break;
+      case "network_har_start":
+        ensureNetListener();
+        result = { ok: true, started: true };
+        break;
+      case "wait_for_download":
+        result = await waitForDownload(params);
+        break;
+      case "frame_switch":
+        result = { ok: false, note: "frame_switch: not yet wired in WS bridge", match: params.match };
+        break;
+      case "window_new":
+        result = await chrome.windows.create({ url: params.url, focused: params.focused !== false })
+                       .then((w) => ({ ok: true, window_id: w.id }));
+        break;
+      case "set_offline":
+        result = await cdpSetOffline(params);
+        break;
+      case "profiler_start":
+        result = await cdpProfilerStart(params);
+        break;
+      case "profiler_stop":
+        result = await cdpProfilerStop(params);
+        break;
+      case "trace_start":
+        result = await cdpTraceStart(params);
+        break;
+      case "trace_stop":
+        result = await cdpTraceStop(params);
         break;
       case "cookies_get":
         result = await cookiesGet(params);
@@ -3392,6 +3484,73 @@ async function waitForTabLoad(params) {
 }
 
 // SPEC ab cookies_* — chrome.cookies API.
+// SPEC ab wait_for_download — listen until the next download completes.
+async function waitForDownload(params) {
+  const timeout = params.timeout || 30000;
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      chrome.downloads.onChanged.removeListener(handler);
+      reject(new Error("wait_for_download: timed out after " + timeout + "ms"));
+    }, timeout);
+    function handler(delta) {
+      if (delta.state && delta.state.current === "complete") {
+        clearTimeout(t);
+        chrome.downloads.onChanged.removeListener(handler);
+        chrome.downloads.search({ id: delta.id }).then((items) => {
+          resolve({ ok: true, download_id: delta.id, item: items[0] || null });
+        });
+      }
+    }
+    chrome.downloads.onChanged.addListener(handler);
+  });
+}
+
+// SPEC ab set_offline — CDP Network override.
+async function cdpSetOffline(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("set_offline: no active tab");
+  await _cdpSend(id, "Network.enable", {});
+  await _cdpSend(id, "Network.emulateNetworkConditions", {
+    offline: !!params.offline,
+    latency: 0,
+    downloadThroughput: -1,
+    uploadThroughput: -1,
+  });
+  return { ok: true, offline: !!params.offline, tab_id: id };
+}
+
+async function cdpProfilerStart(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("profiler_start: no active tab");
+  await _cdpSend(id, "Profiler.enable", {});
+  await _cdpSend(id, "Profiler.start", {});
+  return { ok: true, tab_id: id };
+}
+
+async function cdpProfilerStop(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("profiler_stop: no active tab");
+  const r = await _cdpSend(id, "Profiler.stop", {});
+  return { ok: true, tab_id: id, profile: r?.profile || null };
+}
+
+async function cdpTraceStart(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("trace_start: no active tab");
+  await _cdpSend(id, "Tracing.start", {
+    categories: (params.categories || ["devtools.timeline"]).join(","),
+    options: "record-until-full",
+  });
+  return { ok: true, tab_id: id };
+}
+
+async function cdpTraceStop(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("trace_stop: no active tab");
+  await _cdpSend(id, "Tracing.end", {});
+  return { ok: true, tab_id: id, note: "Tracing.end fired; events stream is consumed externally" };
+}
+
 // SPEC ab pdf — CDP Page.printToPDF; returns base64.
 async function capturePdf(params) {
   const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
