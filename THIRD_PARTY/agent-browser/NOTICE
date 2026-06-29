@@ -1,0 +1,14 @@
+agent-browser
+=============
+
+Source: https://github.com/vercel-labs/agent-browser
+Locked commit: ed2e10598c9064aecfaeb7cf21b540684db4be2c (v0.31.1, 2026-06-29)
+License: Apache-2.0 (see LICENSE)
+
+This repository (opendia) reproduces the in-browser MCP tool surface of
+agent-browser as a capability target. No source code is vendored here other
+than this attribution; the locked-sha source is cloned by Everywhere's
+`bench/runner/run-ab.sh` during baseline freeze (spec
+`docs/specs/everywhere-replace-agent-browser.md` §5.1, Phase 0.5).
+
+Original copyright holders: Vercel, Inc. and contributors to agent-browser.
