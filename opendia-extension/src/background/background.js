@@ -556,6 +556,41 @@ function getAvailableTools() {
       },
     },
     {
+      name: "pdf",
+      description: "📄 Print the active tab to a base64 PDF via CDP Page.printToPDF.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "network_requests",
+      description: "🌐 Return the buffered list of network requests for the active tab (last 200). Pass {flush:false} to peek without clearing.",
+      inputSchema: { type: "object", properties: { flush: { type: "boolean", default: true }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "react_tree",
+      description: "⚛️ Best-effort React DevTools tree summary (renderer/root counts).",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "react_inspect",
+      description: "⚛️ Best-effort React DevTools inspect probe.",
+      inputSchema: { type: "object", properties: { ref: { type: "string" }, tab_id: { type: "number" } } },
+    },
+    {
+      name: "react_renders_start",
+      description: "⚛️ Stub for ab React renders profiler start; reports hook presence only.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "react_renders_stop",
+      description: "⚛️ Stub for ab React renders profiler stop.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
+      name: "react_suspense",
+      description: "⚛️ Stub for ab React suspense probe.",
+      inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
+    },
+    {
       name: "deny",
       description: "❎ Alias for dialog_dismiss — pre-arms the next confirm() to return false.",
       inputSchema: { type: "object", properties: { tab_id: { type: "number" } } },
@@ -2001,6 +2036,11 @@ async function handleMCPRequest(message) {
       case "highlight":
       case "remove_init_script":
       case "frame_main":
+      case "react_tree":
+      case "react_inspect":
+      case "react_renders_start":
+      case "react_renders_stop":
+      case "react_suspense":
       case "console":
       case "vitals":
       case "inspect":
@@ -2051,6 +2091,12 @@ async function handleMCPRequest(message) {
         break;
       case "diff_screenshot":
         result = await diffScreenshot(params);
+        break;
+      case "pdf":
+        result = await capturePdf(params);
+        break;
+      case "network_requests":
+        result = await flushNetworkBuffer(params);
         break;
       case "cookies_get":
         result = await cookiesGet(params);
@@ -3346,6 +3392,36 @@ async function waitForTabLoad(params) {
 }
 
 // SPEC ab cookies_* — chrome.cookies API.
+// SPEC ab pdf — CDP Page.printToPDF; returns base64.
+async function capturePdf(params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("pdf: no active tab");
+  const r = await _cdpSend(id, "Page.printToPDF", {});
+  return { ok: true, tab_id: id, base64: r?.data || "", bytes: (r?.data || "").length };
+}
+
+// SPEC ab network_requests — buffered request log.
+const __netBuffer = new Map(); // tabId → array of {url, method, type, ts}
+function ensureNetListener() {
+  if (globalThis.__openDiaNetListener) return;
+  chrome.webRequest.onBeforeRequest.addListener((details) => {
+    const buf = __netBuffer.get(details.tabId) || [];
+    buf.push({ url: details.url, method: details.method, type: details.type, ts: details.timeStamp });
+    if (buf.length > 200) buf.shift();
+    __netBuffer.set(details.tabId, buf);
+  }, { urls: ["<all_urls>"] });
+  globalThis.__openDiaNetListener = true;
+}
+async function flushNetworkBuffer(params) {
+  ensureNetListener();
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error("network_requests: no active tab");
+  const buf = __netBuffer.get(id) || [];
+  const out = buf.slice();
+  if (params.flush !== false) __netBuffer.set(id, []);
+  return { ok: true, tab_id: id, requests: out, count: out.length };
+}
+
 // SPEC ab diff_url — track the URL across calls.
 const __urlState = new Map();
 async function diffUrl(params) {
