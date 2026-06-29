@@ -2215,11 +2215,6 @@ async function handleMCPRequest(message) {
       case "find":
       case "errors":
       case "highlight":
-      case "react_tree":
-      case "react_inspect":
-      case "react_renders_start":
-      case "react_renders_stop":
-      case "react_suspense":
       case "storage_get":
       case "storage_set":
       case "storage_clear":
@@ -2230,6 +2225,16 @@ async function handleMCPRequest(message) {
       case "inspect":
       case "wait_for_function":
         result = await sendToContentScript(method, params, params.tab_id);
+        break;
+      case "react_tree":
+      case "react_inspect":
+      case "react_renders_start":
+      case "react_renders_stop":
+      case "react_suspense":
+        // React DevTools hook lives on MAIN world; content scripts run
+        // in ISOLATED world so they see a different `window` and can't
+        // read the hook. Run the inspection in MAIN world directly.
+        result = await reactOpInMain(method, params);
         break;
       case "annotate_screenshot":
         result = await annotateScreenshot(params);
@@ -3771,6 +3776,132 @@ async function cdpTraceStop(params) {
   await _cdpAttach(id);
   await _cdpSend(id, "Tracing.end", {});
   return { ok: true, tab_id: id, note: "Tracing.end fired; events stream is consumed externally" };
+}
+
+// React DevTools ops run in MAIN world — the hook is there, not in
+// the content-script ISOLATED world. Same logic as the content-script
+// version, just relocated.
+async function reactOpInMain(method, params) {
+  const id = params.tab_id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+  if (!id) throw new Error(method + ": no active tab");
+
+  const r = await chrome.scripting.executeScript({
+    target: { tabId: id },
+    world: "MAIN",
+    func: (action, data) => {
+      const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+      const hookPresent = !!(hook && hook.renderers && hook.renderers.size > 0);
+      if (!hookPresent && action !== "react_renders_stop") {
+        return { ok: false, action, reason: "react-devtools hook absent — page not React or DevTools not attached" };
+      }
+      try {
+        if (action === "react_tree") {
+          const limit = (data && data.max_nodes) || 200;
+          const out = [];
+          for (const rid of hook.renderers.keys()) {
+            const roots = hook.getFiberRoots ? Array.from(hook.getFiberRoots(rid) || []) : [];
+            for (const root of roots) {
+              const start = root.current || root;
+              const stack = [{ fiber: start, depth: 0 }];
+              while (stack.length && out.length < limit) {
+                const { fiber, depth } = stack.pop();
+                if (!fiber) continue;
+                const tag = fiber.type;
+                const name = typeof tag === "string" ? tag :
+                             tag && (tag.displayName || tag.name) ? (tag.displayName || tag.name) : null;
+                if (name) out.push({ depth, name, key: fiber.key ?? null });
+                if (fiber.sibling) stack.push({ fiber: fiber.sibling, depth });
+                if (fiber.child) stack.push({ fiber: fiber.child, depth: depth + 1 });
+              }
+            }
+          }
+          return { ok: true, action: "react_tree", nodes: out, truncated: out.length >= limit };
+        }
+        if (action === "react_inspect") {
+          // ref came from a snapshot taken in ISOLATED-world content
+          // script; same DOM, so document.querySelector matches.
+          // We need the live element at that ref. But MAIN can't read
+          // ISOLATED globals. Workaround: pass the selector path or
+          // resolve via a fresh CSS selector if data.selector given.
+          // For SPEC parity we accept either a CSS selector OR a
+          // document-level lookup by ref-anchored attributes is
+          // impractical here, so demand selector.
+          const sel = data && data.selector;
+          if (!sel) {
+            // Best effort: return ok:false with guidance.
+            return { ok: false, action, reason: "react_inspect from MAIN needs a CSS selector (data.selector). The @refN handle lives in ISOLATED world." };
+          }
+          const el = document.querySelector(sel);
+          if (!el) return { ok: false, action, reason: "no element matches " + sel };
+          const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"));
+          if (!key) return { ok: false, action, reason: "no fiber on element — page not React" };
+          let fiber = el[key];
+          const ancestors = [];
+          for (let walker = fiber; walker && ancestors.length < 5; walker = walker.return) {
+            const t = walker.type;
+            const n = typeof t === "string" ? t : t && (t.displayName || t.name);
+            if (n) ancestors.push(n);
+          }
+          const props = fiber.memoizedProps || fiber.pendingProps || {};
+          return {
+            ok: true,
+            action,
+            component: ancestors[0] || null,
+            ancestors,
+            props_keys: Object.keys(props || {}),
+            has_state: !!fiber.memoizedState,
+          };
+        }
+        if (action === "react_renders_start") {
+          if (!window.__openDiaReactRenders) {
+            window.__openDiaReactRenders = { counts: new Map(), origOnCommit: hook.onCommitFiberRoot };
+            hook.onCommitFiberRoot = function (rendererID, root) {
+              try {
+                const fiber = root && (root.current || root);
+                const t = fiber && fiber.type;
+                const n = typeof t === "string" ? t : t && (t.displayName || t.name);
+                if (n) window.__openDiaReactRenders.counts.set(n, (window.__openDiaReactRenders.counts.get(n) || 0) + 1);
+              } catch {}
+              if (window.__openDiaReactRenders.origOnCommit) return window.__openDiaReactRenders.origOnCommit.apply(this, arguments);
+            };
+          }
+          return { ok: true, action };
+        }
+        if (action === "react_renders_stop") {
+          const state = window.__openDiaReactRenders;
+          if (!state) return { ok: false, action, reason: "react_renders_start was not called" };
+          hook.onCommitFiberRoot = state.origOnCommit;
+          const counts = Object.fromEntries(state.counts);
+          delete window.__openDiaReactRenders;
+          return { ok: true, action, counts };
+        }
+        if (action === "react_suspense") {
+          let pending = 0, resolved = 0;
+          for (const rid of hook.renderers.keys()) {
+            const roots = hook.getFiberRoots ? Array.from(hook.getFiberRoots(rid) || []) : [];
+            for (const root of roots) {
+              const stack = [root.current || root];
+              while (stack.length) {
+                const f = stack.pop();
+                if (!f) continue;
+                if (f.tag === 13) {
+                  if (f.memoizedState) pending += 1; else resolved += 1;
+                }
+                if (f.sibling) stack.push(f.sibling);
+                if (f.child) stack.push(f.child);
+              }
+            }
+          }
+          return { ok: true, action, pending, resolved };
+        }
+        return { ok: false, action, reason: "unknown react op" };
+      } catch (e) {
+        return { ok: false, action, error: String(e) };
+      }
+    },
+    args: [method, params || {}],
+  });
+  return r[0]?.result || { ok: false, error: "no result" };
 }
 
 // SPEC ab annotate_screenshot — viewport screenshot + numbered overlay
