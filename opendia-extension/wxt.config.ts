@@ -1,81 +1,75 @@
-// Phase 1 WXT config for OpenDia. Mirrors manifest-chrome.json and
-// manifest-firefox.json field-for-field so the built extension is
-// behaviourally identical to today's build.js output.
+// OpenDia + Cebian merged WXT config. Cebian's full agentic sidepanel
+// (chat / providers / MCP / recorder / VFS / skills / memory / backup)
+// stacks on top of OpenDia's 164-tool browser bridge. Every entrypoint
+// Cebian ships is included; OpenDia's own background + content scripts
+// coexist alongside them.
 //
-// Phase 2 adds a Chrome MV3 side_panel entry + sidePanel permission gated
-// by the OPENDIA_CHAT_UI kill switch (checked at runtime — the manifest
-// entry stays, but background can skip opening it).
+// Rollback switches:
+//   OPENDIA_LEGACY_POPUP=1  restores the pre-merge action popup
+//   OPENDIA_CHAT_UI=0       (runtime, chrome.storage.local) hides sidepanel
 //
-// See docs/specs/opendia-cebian-merge.md §Phase 1–2 for guardrails.
+// Vite plugins mirror Cebian upstream — the two pi-ai OAuth transforms are
+// mandatory for Chrome Web Store review (obfuscated-code detector).
 import { defineConfig } from 'wxt';
+import tailwindcss from '@tailwindcss/vite';
+import path from 'node:path';
 
-// Phase 3 rollback: set OPENDIA_LEGACY_POPUP=1 to re-include the pre-Cebian
-// action popup entrypoint. Default (unset) drops the popup — toolbar click
-// falls through to chrome.action.onClicked → chrome.sidePanel.open(). This
-// matches SPEC §2 Invariants "OPENDIA_LEGACY_POPUP=1 restores popup.html".
 const LEGACY_POPUP = process.env.OPENDIA_LEGACY_POPUP === '1';
 
-const CHROME_PERMS = [
-  'tabs',
-  'activeTab',
-  'storage',
-  'scripting',
-  'webNavigation',
-  'webRequest',
-  'notifications',
-  'bookmarks',
-  'history',
-  'debugger',
-  'cookies',
-  'downloads',
-  'tabGroups',
-  // Phase 2: sidepanel opened via chrome.sidePanel.open().
-  'sidePanel',
+const CEBIAN_PERMS = [
+  'sidePanel', 'activeTab', 'tabs', 'scripting', 'storage', 'alarms',
+  'offscreen', 'debugger', 'webNavigation',
+  'bookmarks', 'history', 'cookies', 'topSites', 'sessions',
+  'downloads', 'notifications',
+  'clipboardRead',
 ];
 
-// Firefox MV2 pre-migration set — matches manifest-firefox.json exactly.
-// `<all_urls>` was listed under permissions in the legacy MV2 manifest; WXT
-// keeps host_permissions in the same array for MV2.
+// OpenDia additions that Cebian's baseline lacks. `webRequest` is required
+// by CDP network tools; `tabGroups` powers OBU tab grouping.
+const OPENDIA_EXTRA_PERMS = ['webRequest', 'tabGroups'];
+
+const CHROME_PERMS = Array.from(new Set([...CEBIAN_PERMS, ...OPENDIA_EXTRA_PERMS]));
+
+// Firefox MV2 preserves the pre-migration OpenDia set (webRequestBlocking
+// gated by MV2 only; Chrome MV3 rejects it). No Cebian-specific perms yet
+// because Cebian ships MV3-only; the Firefox target here is OpenDia's
+// existing MV2 build parity.
 const FIREFOX_PERMS = [
-  'tabs',
-  'activeTab',
-  'storage',
-  'webNavigation',
-  'webRequest',
-  'notifications',
-  'bookmarks',
-  'history',
-  'webRequestBlocking',
-  'cookies',
-  'downloads',
-  '<all_urls>',
+  'tabs', 'activeTab', 'storage', 'webNavigation', 'webRequest',
+  'notifications', 'bookmarks', 'history', 'webRequestBlocking',
+  'cookies', 'downloads', '<all_urls>',
 ];
 
-// Entrypoint list. Popup joins only when the rollback env is set — Phase 3
-// otherwise removes it from the manifest so chrome.action.onClicked fires
-// on toolbar clicks (WXT auto-registers default_popup when an entrypoint
-// named "popup" exists).
-const ENTRYPOINTS = [
-  'background',
-  'content',
-  'react-hook-inject',
-  'sidepanel',
-  ...(LEGACY_POPUP ? ['popup'] : []),
-];
+// WXT MV3 sandbox CSP — verbatim from Cebian. MCP App sandbox iframes need
+// to load remote scripts; the strict per-app boundary lives in the inner
+// meta CSP built by mcp-app.sandbox/main.ts.
+const SANDBOX_CSP =
+  "sandbox allow-scripts allow-forms allow-popups allow-modals; " +
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:; " +
+  "style-src 'self' 'unsafe-inline' https: data:; " +
+  "connect-src 'self' https: wss: data: blob:; " +
+  "img-src 'self' data: blob: https:; " +
+  "font-src 'self' data: https:; " +
+  "media-src 'self' data: blob: https:; " +
+  "child-src 'self' data: blob:; " +
+  "base-uri *;";
 
 export default defineConfig({
   srcDir: '.',
   entrypointsDir: 'entrypoints',
   publicDir: 'public',
   outDir: 'dist',
-  modules: ['@wxt-dev/module-react'],
-  filterEntrypoints: ENTRYPOINTS,
+  modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
+  dev: {
+    server: { port: 3210 },
+  },
   manifest: ({ browser }) => {
     const isFirefox = browser === 'firefox';
     return {
       name: 'OpenDia',
       version: '1.1.0',
       description: 'Connect your browser to AI models',
+      default_locale: 'en',
       ...(isFirefox
         ? {
             browser_specific_settings: {
@@ -102,6 +96,75 @@ export default defineConfig({
           matches: ['<all_urls>'],
         },
       ],
+      ...(isFirefox ? {} : { content_security_policy: { sandbox: SANDBOX_CSP } }),
     };
   },
+  filterEntrypoints: [
+    // OpenDia core
+    'background', 'content', 'react-hook-inject', 'sidepanel',
+    ...(LEGACY_POPUP ? ['popup'] : []),
+    // Cebian entrypoints — MV3 only. WXT skips them on Firefox MV2 because
+    // Cebian never targeted MV2 (offscreen/sidebar/sandbox differences).
+    'offscreen', 'sandbox', 'mcp-app.sandbox', 'mcp-app',
+    'user-permission', 'vfs', 'settings', 'recorder',
+  ],
+  vite: () => ({
+    plugins: [
+      // pi-ai internal `./anthropic.js` -> local no-op shim. Cebian doesn't
+      // use Anthropic OAuth; the upstream module contains a base64 client
+      // ID that trips Chrome Web Store obfuscated-code review.
+      {
+        name: 'cebian:stub-pi-ai-anthropic',
+        enforce: 'pre' as const,
+        resolveId(id: string, importer: string | undefined) {
+          if (id !== './anthropic.js' || !importer) return null;
+          const normalized = importer.replace(/\\/g, '/');
+          if (!normalized.includes('/@earendil-works/pi-ai/dist/utils/oauth/')) return null;
+          return path.resolve(__dirname, 'lib/shims/pi-ai-anthropic.js');
+        },
+      },
+      // pi-ai GitHub Copilot OAuth: rewrite the `atob(base64)` client-ID
+      // pattern to a plain-text literal so the bundle passes obfuscation
+      // review. Fail-loud throw when upstream changes shape.
+      {
+        name: 'cebian:depobfuscate-pi-ai-copilot',
+        enforce: 'pre' as const,
+        transform(code: string, id: string) {
+          const normalized = id.replace(/\\/g, '/').split('?')[0];
+          if (!normalized.endsWith('/@earendil-works/pi-ai/dist/utils/oauth/github-copilot.js')) {
+            return null;
+          }
+          const OBFUSCATED =
+            'const decode = (s) => atob(s);\n' +
+            'const CLIENT_ID = decode("SXYxLmI1MDdhMDhjODdlY2ZlOTg=");';
+          const REPLACEMENT = 'const CLIENT_ID = "Iv1.b507a08c87ecfe98";';
+          if (!code.includes(OBFUSCATED)) {
+            throw new Error(
+              '[cebian:depobfuscate-pi-ai-copilot] pi-ai github-copilot.js no longer ' +
+              'contains the expected atob pattern. Update wxt.config.ts before shipping.',
+            );
+          }
+          return { code: code.replace(OBFUSCATED, REPLACEMENT), map: null };
+        },
+      },
+      tailwindcss(),
+    ],
+    server: {
+      // Sandbox pages have origin: null — permissive CORS in dev.
+      cors: true,
+    },
+    define: {
+      // pi-ai openai-codex / anthropic modules read this at module load in a
+      // Node-only branch that never runs in a service worker. Inlining a
+      // literal keeps the SW from throwing on `process is not defined`.
+      'process.env.PI_OAUTH_CALLBACK_HOST': JSON.stringify('127.0.0.1'),
+    },
+    resolve: {
+      alias: {
+        // isomorphic-textencoder crashes in MV3 SW strict mode; shim to
+        // native TextEncoder/TextDecoder.
+        'isomorphic-textencoder': path.resolve(__dirname, 'lib/shims/isomorphic-textencoder.js'),
+      },
+    },
+  }),
 });

@@ -1,0 +1,29 @@
+import { Type } from 'typebox';
+import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
+import { TOOL_FS_MKDIR } from '@/lib/tools/names';
+import { vfs } from '@/lib/persistence/vfs';
+
+const FsMkdirParameters = Type.Object({
+  path: Type.String({
+    description: 'Absolute path of the directory to create (e.g. "/workspaces/abc/src/utils"). Intermediate directories are created automatically.',
+  }),
+});
+
+export const fsMkdirTool: AgentTool<typeof FsMkdirParameters> = {
+  name: TOOL_FS_MKDIR,
+  label: 'Create Directory',
+  description:
+    'Create a directory in the virtual filesystem. ' +
+    'Intermediate parent directories are created automatically. ' +
+    'Succeeds silently if the directory already exists.',
+  parameters: FsMkdirParameters,
+
+  async execute(_toolCallId, params, signal): Promise<AgentToolResult<{}>> {
+    signal?.throwIfAborted();
+    await vfs.mkdir(params.path, { recursive: true });
+    return {
+      content: [{ type: 'text', text: `Created directory ${params.path}` }],
+      details: {},
+    };
+  },
+};

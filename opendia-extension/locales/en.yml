@@ -1,0 +1,776 @@
+﻿# Cebian extension i18n — English (default).
+# Edit this file along with locales/zh_CN.yml and locales/zh_TW.yml.
+# See .agents/skills/i18n-naming/SKILL.md.
+
+# ─── Manifest (flat top-level keys, see skill "Manifest localization") ───
+extName: "Cebian · Open-Source AI Side Panel Agent"
+extDescription: "Side panel AI agent. BYO key (OpenAI/Anthropic/Google), no account. Element picker, MCP tools, skills. AGPL-3.0, local-first."
+actionTitle: "Open Cebian sidebar"
+
+# ─── Common (reused across the UI) ───
+common:
+  newChat: "New chat"
+  send: "Send"
+  history: "History"
+  # History list date groupings (by last-activity time)
+  historyGroup:
+    today: "Today"
+    week: "Previous 7 days"
+    month: "Previous 30 days"
+    older: "Older"
+  toggleTheme: "Toggle theme"
+  settings: "Settings"
+  back: "Back"
+  openInNewTab: "Open in new tab"
+  loading: "Loading…"
+  cancel: "Cancel"
+  confirm: "Confirm"
+  save: "Save"
+  delete: "Delete"
+  rename: "Rename"
+  edit: "Edit"
+  add: "Add"
+  code: "Code"
+  copy: "Copy"
+  copied: "Copied"
+  copyFailed: "Copy failed"
+  speak: "Read aloud"
+  stopSpeaking: "Stop reading aloud"
+  # $1 = code language label (e.g. "Ts", "Python")
+  speakCodeSkipped: "Skipped $1 code block"
+  speakCodeSkippedPlain: "Skipped code block"
+  download: "Download"
+  downloadFailed: "Download failed"
+  newFile: "New file"
+  newFolder: "New folder"
+  search: "Search"
+  searchPlaceholder: "Search…"
+  moreActions: "More actions"
+  empty:
+    history: "No history yet"
+    folder: "Empty folder"
+  time:
+    justNow: "Just now"
+    # Time labels intentionally use abbreviations (min/h/d/mo/y) to avoid
+    # English plural-vs-singular branching at the call site ("1 min ago"
+    # reads naturally without a separate 0/1/n map).
+    # $1 = number of minutes
+    minutesAgo: "$1 min ago"
+    # $1 = number of hours
+    hoursAgo: "$1 h ago"
+    # $1 = number of days
+    daysAgo: "$1 d ago"
+    # $1 = number of months
+    monthsAgo: "$1 mo ago"
+    # $1 = number of years
+    yearsAgo: "$1 y ago"
+  session:
+    deleteConfirmTitle: "Delete chat?"
+    # $1 = session title
+    deleteConfirmDescription: "\"$1\" and its workspace files will be permanently removed. This cannot be undone."
+    running: "Agent is running"
+    # $1 = message count
+    messageCount:
+      0: "No messages"
+      1: "1 message"
+      n: "$1 messages"
+
+# ─── Settings hub ───
+settings:
+  nav:
+    aria: "Settings navigation"
+    providers: "AI providers"
+    instructions: "Instructions"
+    prompts: "Prompts"
+    skills: "Skills"
+    memory: "Memory"
+    mcp: "MCP Servers"
+    backup: "Backup & Restore"
+    storage: "Filesystem"
+    advanced: "Advanced"
+    about: "About"
+  providers:
+    title: "AI providers"
+  storage:
+    title: "Filesystem"
+    used: "Used space"
+    usedError: "Couldn't calculate"
+    openBrowser: "Open file browser"
+    description: "Browse files the AI created, organized by conversation. The browser is read-only — use the download button there to export."
+  about:
+    title: "About"
+    tagline: "AI browser sidebar assistant"
+    feedback: "Feedback"
+    checkUpdate: "Check for updates"
+    checking: "Checking…"
+    upToDate: "You are on the latest version"
+    # $1 = new version string (e.g. "1.2.3")
+    updateAvailable: "New version v$1 available"
+    viewInstallGuide: "View install guide"
+    checkFailed: "Update check failed"
+    followAuthor: "Follow the author"
+    socials:
+      wechat: "WeChat Official Account"
+      wechatHandle: "一只猫头猫"
+      bilibili: "Bilibili"
+      bilibiliHandle: "不想睡觉猫头猫"
+      xiaohongshu: "Xiaohongshu"
+      xiaohongshuHandle: "一只猫头猫"
+      x: "X"
+      xHandle: "@maotoumao0_0"
+  advanced:
+    title: "Advanced"
+    compaction:
+      label: "Context compaction model"
+      hint: "The model used to automatically compact overly long conversations. Defaults to the conversation model."
+      followMain: "Same as conversation model"
+  instructions:
+    title: "Instructions"
+    label: "Custom instructions"
+    hint: "Appended after the default rules. Use it to adjust language, tone, or persona. Cannot override tool protocols or safety rules."
+    placeholder: "e.g.\n- Reply in English\n- Keep answers concise\n- Default to TypeScript when discussing code"
+  prompts:
+    title: "Prompts"
+    newBody: "(Write your prompt here)"
+    # $1 = trigger character ("/")
+    hint: "Reusable prompt templates. Trigger them with $1 in the chat input."
+    placeholders:
+      selectedText: "Selected text on page"
+      pageUrl: "Current page URL"
+      pageTitle: "Current page title"
+      date: "Current date"
+      clipboard: "Clipboard content"
+  memory:
+    title: "Memory"
+    enable: "Enable memory"
+    hint: "Cross-conversation memory. Off by default; when on, the assistant saves and recalls durable facts about you across chats."
+    newBody: "(Write the memory here)"
+    organize:
+      title: "Organize memory"
+      hint: "Merge duplicates, drop stale notes, and tidy your memory files in one pass."
+      button: "Organize"
+      running: "Organizing…"
+      model: "Model"
+      followActive: "Same as conversation model"
+      auto: "Auto organize"
+      autoHint: "Periodically tidy memory in the background once enough new notes pile up."
+      intervalLabel: "Min interval (days)"
+      thresholdLabel: "Trigger threshold (new notes since last organize)"
+      # $1 = last run time
+      lastRun: "Last organized $1"
+      toast:
+        ok: "Memory organized"
+        empty: "Nothing to organize"
+        conflict: "Memory changed during the run — skipped, try again"
+        noModel: "No usable model to organize memory"
+        failed: "Memory organize failed"
+  skills:
+    title: "Skills"
+    newBody: "(Write your skill instructions here)"
+    create: "Create skill"
+    hint: "Multi-file skill packs that follow the agentskills.io spec; the agent loads them on demand."
+    import: "Import…"
+    exportCurrent: "Export"
+    exportAll: "Export all"
+    exportEmpty: "No skills available to export"
+    # $1 = skill name
+    exportSuccess: "Exported \"$1\""
+    # $1 = number of skills exported
+    exportAllSuccess:
+      1: "Exported 1 skill"
+      n: "Exported $1 skills"
+    # $1 = imported skill name
+    importSuccess: "Imported \"$1\""
+    # $1 = number of skills imported
+    importSuccessBackup:
+      1: "Imported 1 skill"
+      n: "Imported $1 skills"
+    importDialog:
+      titleSingle: "Import skill"
+      titleBackup: "Import skill backup"
+      permissionsHeading: "Requested permissions"
+      permissionsNone: "No special permissions requested."
+      hasScriptsWarning: "Contains executable scripts under scripts/."
+      # $1 = file count
+      fileCount:
+        1: "1 file"
+        n: "$1 files"
+      # $1 = skill count
+      skillCount:
+        1: "1 skill"
+        n: "$1 skills"
+      # $1 = source name (already exists in VFS), $2 = renamed target name
+      conflictNotice: "A skill named \"$1\" already exists. It will be imported as \"$2\" unless you overwrite."
+      overwrite: "Overwrite existing"
+      keepBoth: "Import as new"
+      confirmOverwriteTitle: "Overwrite existing skill?"
+      # $1 = skill name(s), comma-separated
+      confirmOverwriteDescription: "\"$1\" will be replaced and its saved permissions will be cleared. Continue?"
+  mcp:
+    title: "MCP Servers"
+    description: "Connect Model Context Protocol servers to expose their tools to the agent."
+    empty:
+      title: "No MCP servers configured"
+      hint: "Add a server to extend the agent with external tools."
+    actions:
+      add: "Add MCP server"
+      toggle: "Enable server"
+      edit: "Edit server"
+      delete: "Delete server"
+      deleteConfirmTitle: "Delete MCP server?"
+      # $1 = server name
+      deleteConfirmDescription: "\"$1\" will be removed. This cannot be undone."
+    errors:
+      # $1 = server name
+      nameTaken: "An MCP server named \"$1\" already exists."
+      nameRequired: "Server name is required."
+      urlRequired: "Server URL is required."
+      # $1 = URL
+      urlInvalid: "Invalid server URL: $1"
+      # $1 = scheme (e.g. "ftp:")
+      urlScheme: "Unsupported URL scheme: $1"
+      bearerTokenRequired: "Bearer token is required."
+      authHeaderConflict: "Do not set the Authorization header manually when using bearer auth — set the token in the auth field instead."
+    status:
+      disabled: "Disabled"
+      idle: "Awaiting first call"
+      connected: "Connected"
+      disconnected: "Disconnected"
+      probing: "Reconnecting"
+      circuitOpen: "Unavailable"
+    form:
+      name: "Name"
+      namePlaceholder: "e.g. weather, github, my-tools"
+      transport: "Transport"
+      url: "URL"
+      urlPlaceholder: "https://example.com/mcp"
+      authType: "Authentication"
+      authNone: "None"
+      authBearer: "Bearer token"
+      bearerToken: "Token"
+      bearerTokenPlaceholder: "Paste bearer token"
+      headers: "Custom headers"
+      headerKeyPlaceholder: "Header name (e.g. X-MCP-Toolsets)"
+      headerValuePlaceholder: "Header value"
+      addHeader: "Add header"
+      removeHeader: "Remove header"
+  backup:
+    title: "Backup & Restore"
+    local:
+      title: "Local backup"
+      description: "Export everything to a .zip file you keep yourself, and restore it on another device."
+      create: "Create backup"
+      restore: "Restore from file…"
+    create:
+      title: "Create backup"
+      # $1 = formatted timestamp (e.g. "2026-06-09 14-30")
+      defaultName: "Backup $1"
+      nameLabel: "Name"
+      # $1 = max name length (characters)
+      nameInvalid: "Name cannot contain / \\ : * ? \" < > | or exceed $1 characters"
+      descriptionLabel: "Description"
+      descriptionPlaceholder: "Optional description…"
+      mode: "Backup mode"
+      modeFull: "Full backup"
+      modeFullHint: "Sessions, settings, skills & prompts, memory, and credentials"
+      modePartial: "Partial backup"
+      modePartialHint: "Choose what to include"
+      catSessions: "Chat sessions"
+      catWorkspaces: "Include workspace files"
+      catSettings: "General settings"
+      catSkillsPrompts: "Skills & prompts"
+      catMemories: "Memory"
+      catCredentials: "Credentials"
+      catCredentialsHint: "Includes API keys, OAuth tokens, etc."
+      encrypt: "Encrypt backup"
+      passwordPlaceholder: "Password"
+      passwordHint: "A forgotten password cannot be recovered"
+      bannerInfo: "Backups don't include browser cookies or login state; some providers may need re-login after restoring on a new device"
+      bannerWarning: "This backup contains API keys, OAuth tokens, and other secrets. Don't share it with anyone; enabling encryption is recommended"
+      atLeastOne: "Select at least one category to back up"
+      success: "Backup created"
+      failed: "Backup failed"
+    restore:
+      title: "Restore backup"
+      # $1 = source app version (e.g. "1.3.2")
+      source: "From Cebian v$1"
+      encrypted: "Encrypted"
+      passwordLabel: "Password"
+      passwordPlaceholder: "Enter the backup password"
+      wrongPassword: "Wrong password or corrupted backup"
+      include: "Restore contents"
+      strategy: "How to restore"
+      merge: "Merge"
+      mergeHint: "Add and update only; never deletes local data"
+      replace: "Replace"
+      replaceHint: "Wipe the selected categories first, then restore exactly as in the backup"
+      catSessions: "Chat sessions"
+      catSettings: "General settings"
+      catSkillsPrompts: "Skills & prompts"
+      catMemories: "Memory"
+      catCredentials: "Credentials"
+      apply: "Restore"
+      confirmReplaceTitle: "Replace local data?"
+      confirmReplaceBody: "Replace mode wipes the selected categories before restoring. This cannot be undone"
+      confirmReplaceCredentialsBody: "Replace mode wipes the selected categories before restoring, and writes API keys and tokens from the backup onto this device. This cannot be undone"
+      confirmCredentialsTitle: "Restore credentials?"
+      confirmCredentialsBody: "This will write API keys and tokens from the backup onto this device"
+      invalidFile: "This file is not a valid Cebian backup"
+      incompatible: "This backup was created by a newer version of Cebian and cannot be restored"
+      corrupt: "This backup is damaged or incomplete and can't be restored"
+      passwordRequired: "This backup is encrypted; enter its password"
+      success: "Restore complete"
+      failed: "Restore failed"
+      nothingSelected: "Select at least one category to restore"
+      # $1 = skipped summary, e.g. "Sessions 3 · Files 5"
+      partialSuccess: "Partial restore complete (skipped $1)"
+      # $1 = skipped count
+      skippedSessions: "Sessions $1"
+      # $1 = skipped count
+      skippedFiles: "Files $1"
+    webdav:
+      urlLabel: "Server URL"
+      urlPlaceholder: "https://dav.example.com/remote.php/dav"
+      usernameLabel: "Username"
+      usernamePlaceholder: "Username"
+      passwordLabel: "Password"
+      passwordPlaceholder: "Password or app password"
+      directoryLabel: "Remote folder"
+      directoryPlaceholder: "/cebian"
+      test: "Test connection"
+      testSuccess: "Connection looks good"
+      save: "Save & connect"
+      title: "WebDAV backup"
+      description: "Back up to a WebDAV server and keep multiple snapshots there, with restore on any device."
+      notConfigured: "Configure a WebDAV connection first"
+      changeConnection: "Change connection"
+      removeConnection: "Disconnect"
+      removeConfirmTitle: "Disconnect WebDAV?"
+      removeConfirmBody: "The saved connection (including the password) will be removed from this device. Snapshots already uploaded to the WebDAV server are kept and stay accessible after reconnecting."
+      removeSuccess: "WebDAV connection removed"
+      backupNow: "Back up to WebDAV"
+      refresh: "Refresh"
+      loading: "Loading…"
+      noSnapshots: "No snapshots yet"
+      restoreAction: "Restore"
+      deleteAction: "Delete"
+      savedConnection: "Connection saved"
+      uploadSuccess: "Uploaded to WebDAV"
+      deleteConfirmTitle: "Delete this snapshot?"
+      # $1 = snapshot file name
+      deleteConfirmBody: "$1 will be permanently removed from the WebDAV server. This cannot be undone"
+      deleteSuccess: "Snapshot deleted"
+      deleteFailed: "Delete failed"
+      error:
+        network: "Can't reach the WebDAV server — check the URL and your network"
+        timeout: "The WebDAV server took too long to respond — check the URL and your network"
+        unauthorized: "Authentication failed — check the username and password"
+        notFound: "Remote path not found"
+        conflict: "The parent folder doesn't exist on the server"
+        invalid: "Invalid path — the server URL, folder, or file name isn't safe"
+        unexpected: "The WebDAV server returned an unexpected response"
+  editor:
+    selectFile: "Select a file to start editing"
+    saving: "Saving…"
+    saveFailed: "Save failed"
+    unsaved: "Unsaved"
+    saved: "Saved"
+  files:
+    backToList: "Back to file list"
+    selectOrCreate: "Select or create a file from the left"
+
+# ─── Chat surface ───
+chat:
+  composer:
+    placeholder: "Type '/' for commands…"
+    pickElement: "Pick element"
+    cancelPick: "Cancel pick"
+    screenshot: "Screenshot"
+    uploadFile: "Upload file"
+    mobileMode: "Mobile mode"
+    needModel: "Please select an AI model first"
+    goToSettings: "Go to settings"
+    readPromptFailed: "Failed to read prompt"
+    elementAdded: "Element already added"
+    elementPickFailed: "Failed to pick element"
+    elementPickUnsupported: "Element picker isn't supported on this page"
+    elementPickNavigated: "Element picker cancelled — the page navigated"
+    imageAlreadyAdded: "Image already added"
+    screenshotFailed: "Screenshot failed"
+    # $1 = max attachment count
+    maxAttachments: "Up to $1 attachments"
+    # $1 = number of files actually added
+    truncatedFiles: "Only added the first $1 file(s); limit reached"
+    # $1 = file name, $2 = size limit (formatted, e.g. "5 MB")
+    fileTooLarge: "$1 exceeds $2"
+    # $1 = file name
+    readFileFailed: "Failed to read: $1"
+    # $1 = file name
+    unsupportedFileType: "Unsupported file type: $1"
+    modelNoImage: "Current model doesn't support multimodal input"
+    imageStripped: "Removed image attachments — the current model doesn't support multimodal input"
+    noPrompts: "No prompts yet — create one from AI config"
+    noMatch: "No matches"
+    iframeEnterHint: "⏎ enter"
+    # Voice input (local-first speech recognition with cloud fallback)
+    voiceStart: "Voice input"
+    voiceStop: "Stop voice input"
+    voicePreparing: "Preparing the speech model…"
+    voiceNeedPermission: "Microphone access is needed — grant it in the tab that just opened, then click the mic again."
+    voiceDenied: "Microphone access is blocked. Allow it for Cebian in Chrome settings, then try again."
+    voiceLanguageUnavailable: "Speech recognition isn't available for the current language."
+    voiceNoSpeech: "No speech detected. Try again."
+    voiceAudioCapture: "No microphone was found, or it couldn't be accessed."
+    voiceNetworkFailed: "Couldn't reach the speech recognition service. Check your network and try again."
+    voiceFailed: "Voice input failed. Please try again."
+  attachments:
+    image: "Image"
+    screenshot: "Screenshot"
+    imageAlt: "Attachment image"
+    # $1 = event count, $2 = formatted duration (M:SS)
+    recordingMeta: "$1 events · $2"
+    recordingTruncated: "truncated"
+    recordingDownload: "Download recording JSON"
+    # $1 = event count, $2 = compact char count (e.g. 1.2K, 3M)
+    recordingHover: "$1 events · ~$2 chars"
+  recorder:
+    start: "Start recording user actions"
+    stop: "Stop recording (will attach to next message)"
+    startRejectedBusy: "Another sidepanel is already recording. Stop it first to start a new recording."
+    autoStoppedEvents: "Recording auto-stopped: event limit reached"
+    autoStoppedTime: "Recording auto-stopped: time limit reached"
+  askUser:
+    placeholder: "Type a reply…"
+    # Multi-question form (paged): navigation + per-question affordances
+    previous: "Previous"
+    next: "Next"
+    submit: "Submit"
+    skipped: "Skipped"
+    multiHint: "Select all that apply"
+  permission:
+    # Permission prompt shown before a skill script runs. $1 = skill name, $2 = script path
+    title: "Skill $1 wants to run $2"
+    requests: "It is requesting these permissions:"
+    deny: "Deny"
+    allowOnce: "Allow once"
+    allowAlways: "Always allow this skill"
+    # Shown when the request can no longer be answered (e.g. the background
+    # was restarted while it was pending).
+    expired: "This permission request has expired"
+    perm:
+      pageExecuteJs: "Run scripts in your web pages — read and change page content, and act through your logged-in sessions"
+      vfsRead: "Read files in this skill's own workspace folder"
+      vfsWrite: "Read and write files in this skill's own workspace folder"
+      bgFetchAny: "Make network requests to any website in the background, bypassing cross-origin limits"
+      # $1 = match pattern (host scope)
+      bgFetchPattern: "Make background network requests to $1, bypassing cross-origin limits"
+      chromeTabs: "View and manage your browser tabs (open, close, move, reload) and capture the visible tab's contents"
+      chromeWindows: "View and manage your browser windows"
+      chromeAlarms: "Schedule and manage background timers"
+      chromeWebNavigation: "Read navigation details of your open pages and their frames"
+      chromeBookmarks: "Read and modify your bookmarks"
+      chromeHistory: "Read and modify your browsing history"
+      chromeCookies: "Read, change, and delete cookies for sites you visit, including login-session cookies normally hidden from web pages"
+      chromeTopSites: "Read your most-visited sites"
+      chromeSessions: "View and restore recently closed tabs and windows, including sessions synced from your other devices"
+      chromeDownloads: "View and manage your downloads, and start new ones"
+      chromeNotifications: "Create and manage system notifications"
+      # $1 = chrome namespace
+      chromeFallback: "Call the browser's chrome.$1 API"
+  model:
+    select: "Select model"
+    searchPlaceholder: "Search models…"
+    notFound: "No models found"
+    addMore: "Open settings to add more providers"
+  thinking:
+    # $1 = current level label
+    label: "Thinking: $1"
+    levels:
+      "off": "Off"
+      minimal: "Minimal"
+      low: "Low"
+      medium: "Medium"
+      high: "High"
+  tool:
+    args: "Arguments"
+    result: "Result"
+  mcpApp:
+    # Shown while the MCP App's HTML is being fetched from the server.
+    loading: "Loading interactive view…"
+    # Tooltip / label for the retry button when the fetch fails.
+    retry: "Retry"
+    # Fallback error message when the BG didn't supply one. Should rarely
+    # surface in practice — the BG always classifies into a `code` +
+    # `message` pair.
+    errorGeneric: "Failed to load interactive view"
+    # Code-specific error copy. The BG's raw `message` (e.g. a transport
+    # error string) is appended as a secondary detail line where useful.
+    errorServerUnavailable: "This MCP server is no longer available. Re-enable it in settings to view this diagram."
+    # $1 = raw failure detail from the BG (e.g. "connect ECONNREFUSED ...")
+    errorFetchFailed: "Couldn't load the interactive view: $1"
+  message:
+    # $1 = input tokens (formatted, e.g. "1.2k"), $2 = output tokens (formatted)
+    tokensInOut: "↑$1 ↓$2"
+    # Cache breakdown without write. $1 = uncached, $2 = cache hit (both formatted)
+    tokensInBreakdownHit: "uncached $1 · cached $2"
+    # Cache breakdown with write. $1 = uncached, $2 = cache hit, $3 = cache write (all formatted)
+    tokensInBreakdownHitWrite: "uncached $1 · cached $2 · write $3"
+    # Tooltip/aria-label for the retry button on the latest assistant turn.
+    retry: "Retry"
+  compaction:
+    # Label on the divider marking where earlier context was folded into a summary.
+    divider: "Earlier context compacted"
+    # Bottom status bar shown while the compaction LLM call is in flight.
+    status: "Compacting context…"
+  session:
+    loading: "Loading session…"
+    modelError: "Model returned an error"
+    # Shown inside an assistant bubble when the user cancelled the run
+    # (either mid-stream or while a retry was rebuilding). Stays neutral
+    # — cancelling isn't an error, just a stopped attempt.
+    cancelled: "Cancelled"
+    # `lastError` toast shown by the chat composer when send/retry is
+    # attempted before the chrome.runtime port has connected (typically
+    # right after SW wakes up or after a disconnect-retry).
+    notConnected: "Not connected to background service — please try again"
+    # Shown after the auto-reconnect has tried several times without
+    # success. Hints that recovery is in progress, doesn't promise a fix.
+    reconnecting: "Connection lost, retrying…"
+    welcomeReady: "What can I help you with?"
+    # Example prompt cards shown in the new-chat empty state. The *Title is
+    # the short card label; the *Prompt is the full text dropped into the
+    # composer when the card is clicked (user can edit before sending).
+    exampleSummarizeTitle: "Summarize this page"
+    exampleSummarizePrompt: "Read the content of the current page and summarize its key points concisely."
+    exampleTranslateTitle: "Translate this page"
+    exampleTranslatePrompt: "Translate the main content of the current page into English, keeping the original structure."
+    exampleExtractTitle: "Extract key points"
+    exampleExtractPrompt: "Extract the key information from the current page (title, main points, important links) and organize it into a list."
+    exampleTabsTitle: "Organize my tabs"
+    exampleTabsPrompt: "Take a look at the tabs I currently have open, group them by topic, and point out any duplicate pages I can close."
+    scrollToBottom: "Jump to latest"
+
+# ─── Provider sub-components (OAuth / API Key / custom) ───
+provider:
+  section:
+    viaApiKey: "Via API Key"
+    # $1 = number of hidden providers
+    showMore: "Show more ($1)"
+    showLess: "Show less"
+  status:
+    connected: "Connected"
+    notConfigured: "Not configured"
+    configured: "Configured"
+    unverified: "Unverified"
+    verifying: "Verifying"
+    failed: "Failed"
+  oauth:
+    signIn: "Sign in"
+    signOut: "Sign out"
+    loggedIn: "Signed in"
+    notLoggedIn: "Not signed in"
+    authorizing: "Authorizing"
+    authFailed: "Authorization failed"
+    enterCode: "Enter the code in the browser:"
+    completeInBrowser: "Complete authorization in the popup browser window…"
+    descriptions:
+      githubCopilot: "Use your Copilot subscription to access GPT/Claude"
+      openaiCodex: "Use your ChatGPT Plus/Pro subscription"
+  apiKey:
+    placeholder: "Enter API Key"
+    disconnect: "Disconnect"
+    noModels: "No available models"
+    savedUnverified: "Saved, but the connectivity test didn't pass"
+  summary:
+    # $1 = auth label (OAuth / API Key), $2 = model count
+    modelsAvailable: "$1 · $2 models available"
+  form:
+    name: "Name"
+    namePlaceholder: "e.g. My Ollama"
+    baseUrl: "Base URL"
+    baseUrlPlaceholder: "e.g. http://localhost:11434/v1"
+    apiKeyOptional: "API Key (optional)"
+    apiKeyPlaceholder: "Leave empty to skip auth"
+    models: "Models"
+    autoFetch: "Auto-fetch"
+    reasoning: "Reasoning"
+    image: "Multimodal"
+    manualModelPlaceholder: "Manual Model ID"
+    addCustom: "Add custom provider"
+    fetchFailed: "Failed to fetch models, please add manually"
+
+# ─── Tool runtime labels (shown in ToolCard) ───
+tools:
+  # $1 = mode (and optional selector suffix)
+  readPage: "Reading page content ($1)"
+  executeJs: "Running script"
+  screenshot: "Taking page screenshot"
+  askUser: "Waiting for user reply"
+  pdf:
+    info: "Reading PDF metadata"
+    # $1 = page range (e.g. "1-10") or the literal "all pages"
+    read: "Reading PDF text ($1)"
+    # $1 = search query (truncated)
+    search: "Searching PDF for \"$1\""
+    # $1 = action name
+    unknown: "pdf: $1"
+  # $1 = skill name
+  runSkill: "Running skill script $1"
+  # $1 = MCP server slug (display form), $2 = remote tool name
+  mcpCall: "$1 · $2"
+  fs:
+    # $1 = file path
+    createFile: "Creating file $1"
+    # $1 = file path
+    editFile: "Editing file $1"
+    # $1 = directory path
+    mkdir: "Creating directory $1"
+    # $1 = old path
+    rename: "Renaming $1"
+    # $1 = path
+    delete: "Deleting $1"
+    # $1 = file path
+    readFile: "Reading file $1"
+    # $1 = directory path
+    list: "Listing directory $1"
+    # $1 = search pattern
+    searchFiles: "Searching files \"$1\""
+    # $1 = search pattern
+    searchContent: "Searching file content \"$1\""
+    # $1 = destination path
+    saveUrl: "Saving URL to $1"
+  memory:
+    save: "Saving memory"
+    recall: "Recalling memory"
+    forget: "Deleting memory"
+  chromeApi:
+    help: "Looking up Chrome API docs"
+    # $1 = namespace, $2 = method
+    call: "Calling chrome.$1.$2"
+  interact:
+    # $1 = target suffix (with leading space) or empty
+    click: "Clicking$1"
+    dblclick: "Double-clicking$1"
+    rightclick: "Right-clicking$1"
+    hover: "Hovering$1"
+    focus: "Focusing$1"
+    type: "Typing text$1"
+    clear: "Clearing input$1"
+    select: "Selecting option$1"
+    scroll: "Scrolling page"
+    # $1 = key name
+    keypress: "Pressing key $1"
+    # $1 = target suffix (with leading space) or empty
+    wait: "Waiting for element to appear$1"
+    waitHidden: "Waiting for element to disappear$1"
+    waitNavigation: "Waiting for page to load"
+    # $1 = step count
+    sequence: "Running action sequence ($1 steps)"
+    # $1 = action name
+    unknown: "interact: $1"
+  inspect:
+    # $1 = selector
+    selector: "Inspecting $1"
+    # $1 = text query
+    text: "Inspecting text \"$1\""
+    page: "Inspecting page"
+  tab:
+    open: "Opening new tab"
+    # $1 = tab id
+    close: "Closing tab $1"
+    # $1 = tab id
+    switch: "Switching to tab $1"
+    reload: "Reloading page"
+    listFrames: "Listing page frames"
+    # $1 = action name
+    unknown: "tab: $1"
+
+# ─── Dialogs ───
+dialogs:
+  imagePreview:
+    title: "Image preview"
+    alt: "Preview"
+  updateNotice:
+    title: "New version available"
+    # $1 = latest version, $2 = current version
+    description: "Cebian v$1 is out. You're on v$2."
+    updateNow: "Update now"
+    skipVersion: "Skip this version"
+
+# ─── VFS browser entrypoint ───
+vfs:
+  backToRoot: "Back to root"
+  zipping: "Zipping…"
+  # $1 = line count
+  lines: "$1 ln"
+  # $1 = formatted file size
+  binaryFile: "[Binary file — $1]"
+  # $1 = formatted file size
+  tooLargeToPreview: "File too large to preview — $1. Use Download instead."
+  # $1 = path, $2 = formatted size, $3 = formatted limit
+  inlineTooLarge: "$1 ($2) — too large to display inline (max $3)"
+  # $1 = MIME type
+  inlineUnsupportedMime: "Unsupported file type for inline preview: $1"
+  # $1 = path, $2 = error message
+  inlineLoadFailed: "$1 — $2"
+  preview: "Preview"
+  viewSource: "View source"
+  # $1 = path
+  pathNotFound: "Path not found: $1"
+  unknownError: "Unknown error"
+  # Session whose workspace dir survives but the session itself was deleted. $1 = short id
+  unknownSession: "Unknown conversation · $1"
+  untitledSession: "Untitled conversation"
+  # $1 = formatted date
+  workspaceCreated: "Created $1"
+
+# ─── Standalone user-permission page (entrypoints/user-permission) ───
+permission:
+  retry: "Request again"
+  unknownType: "Unsupported permission request."
+  microphone:
+    title: "Request microphone access"
+    description: "Cebian needs microphone access for voice input. Click the button below, then choose Allow in the browser prompt."
+    allow: "Allow microphone"
+    requesting: "Waiting for your response…"
+    granted: "Microphone access granted. This tab will close automatically."
+    dismissed: "The request was dismissed. You can try again."
+    denied: "Microphone access was blocked."
+    deniedHint: "To use voice input, allow the microphone for Cebian in Chrome settings — it just opened in a new tab."
+    deviceError: "No microphone was found, or it couldn't be accessed. Check your device and try again."
+
+# ─── Errors (toasts, thrown messages) ───
+errors:
+  oauth:
+    cancelled: "Cancelled"
+    timeout: "Authorization timed out"
+    noCode: "No authorization code received"
+    stateMismatch: "State mismatch"
+    # $1 = HTTP status
+    tokenExchangeFailed: "Token exchange failed: $1"
+    missingTokenFields: "Token response is missing required fields"
+    missingRefreshToken: "No refresh token received"
+    missingRefreshTokenLocal: "Missing refresh token"
+    # $1 = provider id
+    unknownProvider: "Unknown OAuth provider: $1"
+  network:
+    invalidUrl: "Invalid URL format"
+    unsupportedScheme: "Only http/https schemes are supported"
+    # $1 = HTTP status
+    requestFailed: "Request failed: $1"
+  mobile:
+    toggleFailed: "Failed to toggle mobile mode"
+  skillPackage:
+    invalid: "Invalid skill package."
+    tooLarge: "Skill package is too large."
+    tooManyFiles: "Skill package contains too many files."
+    missingEntry: "Skill package is missing SKILL.md."
+    # $1 = path
+    unsafePath: "Unsafe path in skill package: $1"
+    # $1 = permission name
+    unsupportedPermission: "Unsupported permission requested: $1"
+    # $1 = skill name
+    invalidName: "Invalid skill name: $1"
+    # $1 = skill name
+    reservedName: "Skill name is reserved: $1"
+    parseFrontmatter: "Failed to parse SKILL.md frontmatter."
