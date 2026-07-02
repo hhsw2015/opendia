@@ -1,10 +1,16 @@
-// Phase 2 App: single-panel debug view. Renders tool count from the
-// loopback MCP transport as a live badge — this is the SPEC's M2/M3
-// smoke test surface (see §Phase 2 acceptance).
+// Phase 2/3 sidepanel App. Phase 2 introduced the loopback-MCP diagnostic
+// view; Phase 3 promotes it to a "Settings → MCP Bridge" tab and adds a
+// minimal chat surface backed by the extension chat store. Full Cebian
+// verbatim chat UI (agent loop, providers, attachments) lands in a follow-up.
 import React from 'react';
 import { connectLoopback, type LoopbackClient } from '../../lib/loopback-mcp/transport';
+import { McpBridge } from './components/McpBridge';
+import { ChatSurface } from './components/ChatSurface';
+
+type Tab = 'chat' | 'settings';
 
 export function App() {
+  const [tab, setTab] = React.useState<Tab>('chat');
   const [status, setStatus] = React.useState<'connecting' | 'connected' | 'error'>('connecting');
   const [toolCount, setToolCount] = React.useState<number | null>(null);
   const [toolNames, setToolNames] = React.useState<string[]>([]);
@@ -38,11 +44,11 @@ export function App() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'rgba(255,255,255,0.9)',
-      padding: '20px',
+      background: 'rgba(255,255,255,0.94)',
+      padding: '16px',
       display: 'flex',
       flexDirection: 'column',
-      gap: 16,
+      gap: 12,
     }}>
       <header style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{
@@ -56,52 +62,39 @@ export function App() {
           alignItems: 'center',
           justifyContent: 'center',
         }}>OD</div>
-        <h1 style={{ fontSize: '1.1rem', margin: 0 }}>OpenDia sidepanel</h1>
+        <h1 style={{ fontSize: '1.05rem', margin: 0 }}>OpenDia</h1>
+        <nav style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+          <TabButton active={tab === 'chat'} onClick={() => setTab('chat')}>Chat</TabButton>
+          <TabButton active={tab === 'settings'} onClick={() => setTab('settings')}>Settings</TabButton>
+        </nav>
       </header>
 
-      <section style={{
-        padding: 12,
-        borderRadius: 8,
-        background: 'rgba(255,255,255,0.7)',
-        border: '1px solid rgba(0,129,247,0.15)',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>Loopback MCP</span>
-          <span style={{
-            fontWeight: 600,
-            color: status === 'connected' ? '#22c55e' : status === 'error' ? '#ef4444' : '#6b7280',
-          }}>
-            {status}
-          </span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-          <span>Tools</span>
-          <span style={{ fontWeight: 600 }}>{toolCount ?? '…'}</span>
-        </div>
-        {error && (
-          <div style={{ color: '#ef4444', marginTop: 8, fontSize: '0.85rem' }}>{error}</div>
-        )}
-      </section>
-
-      <section style={{
-        padding: 12,
-        borderRadius: 8,
-        background: 'rgba(255,255,255,0.7)',
-        border: '1px solid rgba(0,129,247,0.15)',
-        fontSize: '0.75rem',
-        color: '#374151',
-        maxHeight: 300,
-        overflow: 'auto',
-      }}>
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>Advertised tools</div>
-        {toolNames.length === 0 ? '—' : toolNames.map((n) => (
-          <div key={n} style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{n}</div>
-        ))}
-      </section>
-
-      <footer style={{ marginTop: 'auto', fontSize: '0.7rem', color: '#6b7280' }}>
-        Phase 2 scaffold. Chat UI arrives in Phase 3.
-      </footer>
+      {tab === 'chat'
+        ? <ChatSurface />
+        : <McpBridge
+            status={status}
+            toolCount={toolCount}
+            toolNames={toolNames}
+            error={error}
+          />}
     </div>
+  );
+}
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        border: '1px solid rgba(0,129,247,0.25)',
+        background: active ? 'rgba(0,129,247,0.15)' : 'transparent',
+        color: active ? '#0057b7' : '#374151',
+        padding: '4px 10px',
+        borderRadius: 6,
+        cursor: 'pointer',
+        fontWeight: 600,
+        fontSize: '0.8rem',
+      }}
+    >{children}</button>
   );
 }

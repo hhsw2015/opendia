@@ -9,6 +9,12 @@
 // See docs/specs/opendia-cebian-merge.md §Phase 1–2 for guardrails.
 import { defineConfig } from 'wxt';
 
+// Phase 3 rollback: set OPENDIA_LEGACY_POPUP=1 to re-include the pre-Cebian
+// action popup entrypoint. Default (unset) drops the popup — toolbar click
+// falls through to chrome.action.onClicked → chrome.sidePanel.open(). This
+// matches SPEC §2 Invariants "OPENDIA_LEGACY_POPUP=1 restores popup.html".
+const LEGACY_POPUP = process.env.OPENDIA_LEGACY_POPUP === '1';
+
 const CHROME_PERMS = [
   'tabs',
   'activeTab',
@@ -45,12 +51,25 @@ const FIREFOX_PERMS = [
   '<all_urls>',
 ];
 
+// Entrypoint list. Popup joins only when the rollback env is set — Phase 3
+// otherwise removes it from the manifest so chrome.action.onClicked fires
+// on toolbar clicks (WXT auto-registers default_popup when an entrypoint
+// named "popup" exists).
+const ENTRYPOINTS = [
+  'background',
+  'content',
+  'react-hook-inject',
+  'sidepanel',
+  ...(LEGACY_POPUP ? ['popup'] : []),
+];
+
 export default defineConfig({
   srcDir: '.',
   entrypointsDir: 'entrypoints',
   publicDir: 'public',
   outDir: 'dist',
   modules: ['@wxt-dev/module-react'],
+  filterEntrypoints: ENTRYPOINTS,
   manifest: ({ browser }) => {
     const isFirefox = browser === 'firefox';
     return {
