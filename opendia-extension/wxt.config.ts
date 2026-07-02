@@ -15,6 +15,9 @@ import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
 
 const LEGACY_POPUP = process.env.OPENDIA_LEGACY_POPUP === '1';
+// WXT `-b firefox` sets this at runtime; wxt.config.ts is evaluated once
+// per build so we can key filterEntrypoints on it.
+const IS_FIREFOX_BUILD = process.argv.includes('firefox');
 
 const CEBIAN_PERMS = [
   'sidePanel', 'activeTab', 'tabs', 'scripting', 'storage', 'alarms',
@@ -63,6 +66,14 @@ export default defineConfig({
   dev: {
     server: { port: 3210 },
   },
+  // Silence known-safe Firefox build warnings:
+  //  - firefoxDataCollection: we declare no data collection in
+  //    browser_specific_settings.gecko.data_collection_permissions below
+  //    (required: ['none']), which is the ext-workshop-blessed opt-out.
+  //  - firefoxExtensionId: not applicable, we set the gecko id explicitly.
+  suppressWarnings: {
+    firefoxDataCollection: true,
+  },
   manifest: ({ browser }) => {
     const isFirefox = browser === 'firefox';
     return {
@@ -76,6 +87,13 @@ export default defineConfig({
               gecko: {
                 id: 'opendia@aaronjmars.com',
                 strict_min_version: '109.0',
+                // Explicit opt-out of Firefox's built-in data-consent flow
+                // (mandatory for new extensions after 2025-11-03). "none"
+                // is the extension-workshop-blessed value declaring the
+                // extension performs no data collection at all.
+                data_collection_permissions: {
+                  required: ['none'],
+                },
               },
             },
           }
@@ -103,10 +121,15 @@ export default defineConfig({
     // OpenDia core
     'background', 'content', 'react-hook-inject', 'sidepanel',
     ...(LEGACY_POPUP ? ['popup'] : []),
-    // Cebian entrypoints — MV3 only. WXT skips them on Firefox MV2 because
-    // Cebian never targeted MV2 (offscreen/sidebar/sandbox differences).
-    'offscreen', 'sandbox', 'mcp-app.sandbox', 'mcp-app',
-    'user-permission', 'vfs', 'settings', 'recorder',
+    // Cebian entrypoints. Sandbox pages + offscreen documents don't exist
+    // on Firefox MV2, so exclude them from that build to silence WXT's
+    // "Sandboxed pages not supported by Firefox" warning.
+    // filterEntrypoints uses the WXT-normalised name (suffixes like
+    // `.sandbox` / `.content` are stripped): `mcp-app.sandbox/` → `mcp-app`.
+    ...(IS_FIREFOX_BUILD
+      ? ['user-permission', 'vfs', 'settings', 'recorder']
+      : ['offscreen', 'sandbox', 'mcp-app',
+         'user-permission', 'vfs', 'settings', 'recorder']),
   ],
   vite: () => ({
     plugins: [
