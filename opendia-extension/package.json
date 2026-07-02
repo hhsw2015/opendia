@@ -2,14 +2,18 @@
   "name": "opendia-extension",
   "version": "1.1.0",
   "description": "Connect your browser to AI models",
+  "type": "module",
   "scripts": {
-    "build": "node build.js",
-    "build:chrome": "node build.js chrome",
-    "build:firefox": "node build.js firefox",
-    "dev:chrome": "npm run build:chrome && echo 'Load dist/chrome in Chrome'",
-    "dev:firefox": "npm run build:firefox && web-ext run --source-dir=dist/firefox",
-    "package:chrome": "npm run build:chrome && cd dist/chrome && zip -r ../opendia-chrome.zip .",
-    "package:firefox": "npm run build:firefox && cd dist/firefox && web-ext build --overwrite-dest"
+    "build": "wxt build",
+    "build:chrome": "wxt build --browser chrome",
+    "build:firefox": "wxt build --browser firefox --mv2",
+    "dev:chrome": "wxt --browser chrome",
+    "dev:firefox": "wxt --browser firefox --mv2",
+    "package:chrome": "wxt zip --browser chrome",
+    "package:firefox": "wxt zip --browser firefox --mv2",
+    "postinstall": "wxt prepare",
+    "build:legacy": "node build.js",
+    "test:baseline": "node scripts/opendia-back-to-back.mjs"
   },
   "keywords": [
     "webextension",
@@ -23,6 +27,8 @@
   },
   "devDependencies": {
     "fs-extra": "^11.3.5",
-    "web-ext": "^10.4.0"
+    "typescript": "^5.6.3",
+    "web-ext": "^10.4.0",
+    "wxt": "^0.20.27"
   }
 }
