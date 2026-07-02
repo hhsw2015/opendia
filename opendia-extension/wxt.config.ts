@@ -25,6 +25,9 @@ const CEBIAN_PERMS = [
   'bookmarks', 'history', 'cookies', 'topSites', 'sessions',
   'downloads', 'notifications',
   'clipboardRead',
+  // Right-click context menu entry so Arc users (where the toolbar-icon
+  // click is intercepted) still have a working way to open the sidebar.
+  'contextMenus',
 ];
 
 // OpenDia additions that Cebian's baseline lacks. `webRequest` is required
@@ -113,6 +116,14 @@ export default defineConfig({
       ...(isFirefox ? {} : { host_permissions: ['<all_urls>'] }),
       incognito: 'split',
       action: { default_title: 'OpenDia' },
+      // Keyboard shortcut redundant entry — user binds their key of choice
+      // in chrome://extensions/shortcuts. We don't hard-code a suggested
+      // key because Cmd/Ctrl+Shift+O collides with common built-ins.
+      commands: {
+        'open-sidepanel': {
+          description: 'Open OpenDia sidebar',
+        },
+      },
       web_accessible_resources: [
         {
           resources: ['src/polyfill/browser-polyfill.min.js'],

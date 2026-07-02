@@ -73,21 +73,22 @@ export default defineBackground(() => {
   // meaningful (side panel is global to the browser), so we track it
   // in a module-scope variable and refocus if it still exists.
   let fallbackWindowId: number | null = null;
-  chrome.action.onClicked.addListener(async (tab) => {
-    const mode = await opendiaOpenBehaviour.getValue().catch(() => 'auto');
+
+  async function openSidepanelAny(tab?: chrome.tabs.Tab | null): Promise<void> {
+    const mode = await opendiaOpenBehaviour.getValue().catch(() => 'auto' as const);
+    console.log('[opendia] openSidepanelAny fired', { mode, hasSidePanel: !!sidePanelApi });
     const tryPanel = mode !== 'window';
     if (tryPanel && sidePanelApi?.open) {
       try {
         await sidePanelApi.open({ tabId: tab?.id, windowId: tab?.windowId });
         return;
       } catch (err) {
-        console.warn('[opendia] sidePanel.open failed, falling back to popup window:', err);
-        if (mode === 'panel') return; // user asked for panel-only, don't fall back
+        console.warn('[opendia] sidePanel.open failed:', err);
+        if (mode === 'panel') return;
       }
     }
-    if (mode === 'panel') return; // sidePanel API missing, and user forced panel-only
+    if (mode === 'panel') return;
 
-    // Refocus the existing fallback window if it's still alive.
     if (fallbackWindowId != null) {
       try {
         await chrome.windows.update(fallbackWindowId, { focused: true });
@@ -97,21 +98,60 @@ export default defineBackground(() => {
       }
     }
 
-    // Position the popup on the right edge of the primary display so
-    // the user can arrange their current tab next to it.
-    const screenWidth = (globalThis as any).screen?.width ?? 1440;
     const width = 420;
-    const height = Math.min((globalThis as any).screen?.height ?? 900, 900);
+    const height = 900;
     const created = await chrome.windows.create({
       url: chrome.runtime.getURL('sidepanel.html'),
       type: 'popup',
       width,
       height,
-      left: Math.max(0, screenWidth - width - 10),
-      top: 60,
       focused: true,
     });
     if (created?.id != null) fallbackWindowId = created.id;
+    console.log('[opendia] popup window opened', { windowId: fallbackWindowId });
+  }
+
+  // Redundant entry points for browsers where chrome.action.onClicked
+  // doesn't fire (Arc intercepts the toolbar-icon left click for its own
+  // sidebar UI). We register the same "Open OpenDia sidebar" item under
+  // BOTH the toolbar action right-click menu AND on any web page's
+  // right-click menu, so the user always has a working way in.
+  chrome.runtime.onInstalled.addListener(() => {
+    try {
+      chrome.contextMenus.removeAll(() => {
+        chrome.contextMenus.create({
+          id: 'opendia-open-sidepanel-action',
+          title: 'Open OpenDia sidebar',
+          contexts: ['action'],
+        });
+        chrome.contextMenus.create({
+          id: 'opendia-open-sidepanel-page',
+          title: 'Open OpenDia sidebar',
+          contexts: ['page', 'selection', 'link'],
+        });
+      });
+    } catch (err) {
+      console.warn('[opendia] contextMenus setup failed:', err);
+    }
+  });
+  chrome.contextMenus?.onClicked.addListener((info, tab) => {
+    if (
+      info.menuItemId === 'opendia-open-sidepanel-action' ||
+      info.menuItemId === 'opendia-open-sidepanel-page'
+    ) {
+      void openSidepanelAny(tab);
+    }
+  });
+
+  // Keyboard shortcut fallback. User can rebind in
+  // chrome://extensions/shortcuts. Declared in the manifest below.
+  chrome.commands?.onCommand.addListener((command) => {
+    if (command === 'open-sidepanel') void openSidepanelAny();
+  });
+
+  chrome.action.onClicked.addListener(async (tab) => {
+    console.log('[opendia] action.onClicked fired', { tabId: tab?.id });
+    await openSidepanelAny(tab);
   });
 
   // Reset the tracker when the user closes the fallback window so the
