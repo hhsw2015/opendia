@@ -2168,8 +2168,13 @@ async function handleMCPRequest(message, replyTo) {
   const emit = replyTo || ((msg) => connectionManager.send(msg));
 
   try {
-    // Ensure connection for Chrome service workers
-    await connectionManager.ensureConnection();
+    // Ensure connection for Chrome service workers. Only needed for the
+    // WS transport (daemon-facing). In-process callers pass replyTo and
+    // don't need the WebSocket at all — skip so Cebian's sidebar agent
+    // works with the daemon offline.
+    if (!replyTo) {
+      await connectionManager.ensureConnection();
+    }
 
     // Safety Mode check: Block write/edit tools if safety mode is enabled
     if (safetyModeEnabled && WRITE_EDIT_TOOLS.includes(method)) {
@@ -5475,30 +5480,13 @@ browser.runtime.onConnect.addListener((port) => {
   });
 });
 
-// Phase 3 toolbar → sidepanel wiring. Fires only when action.default_popup is
-// unset (SPEC §Phase 3 pathway). Chrome MV3 `chrome.action.onClicked` only
-// dispatches when no popup is registered; we still guard OPENDIA_CHAT_UI so
-// setting it to "0" leaves the sidepanel unreachable via toolbar.
-if (typeof chrome !== "undefined" && chrome.action && chrome.action.onClicked) {
-  chrome.action.onClicked.addListener(async (tab) => {
-    try {
-      const flag = await new Promise((resolve) => {
-        try {
-          browser.storage.local.get(["OPENDIA_CHAT_UI"], (r) => {
-            const v = r && r.OPENDIA_CHAT_UI;
-            resolve(v == null ? null : String(v));
-          });
-        } catch { resolve(null); }
-      });
-      if (flag === "0") return;
-      if (chrome.sidePanel && chrome.sidePanel.open) {
-        await chrome.sidePanel.open({ tabId: tab?.id, windowId: tab?.windowId });
-      }
-    } catch (err) {
-      console.warn("OpenDia: failed to open sidepanel", err);
-    }
-  });
-}
+// Phase 3 toolbar → sidepanel: handled declaratively by Cebian's
+// chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: true}) in
+// entrypoints/background/index.ts. Registering an additional
+// chrome.action.onClicked listener here would conflict with that
+// declarative behaviour on some Chrome versions and cause the click to
+// hang the service worker. Cebian's setPanelBehavior is enough — click
+// the toolbar icon and Chrome opens the sidepanel automatically.
 
 // chat_* frame dispatch is provided by the merged Cebian chat bridge in
 // entrypoints/background/opendia-cebian-chat-bridge.ts — it installs
