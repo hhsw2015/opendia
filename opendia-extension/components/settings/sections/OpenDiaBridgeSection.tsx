@@ -2,13 +2,25 @@
 // tool count via loopback MCP, current tab, editable WS URL, plus reconnect
 // / disconnect controls. Feature-parity with the pre-merge OpenDia popup
 // (SPEC docs/specs/opendia-cebian-merge.md §Phase 3 M4).
+//
+// Also hosts the "Native tools for sidebar agent" toggle: when enabled the
+// Cebian agent gets 11 core browser_* tools + 2 meta-tools (opendia_list_tools
+// / opendia_call_tool) exposed as first-class AgentTool[] in-process — no
+// MCP round-trip. Users can edit the whitelist to promote/demote tools.
 import { useEffect, useRef, useState } from 'react';
-import { Plug, RefreshCw, Unplug } from 'lucide-react';
+import { Plug, RefreshCw, Unplug, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { connectLoopback, type LoopbackClient } from '@/lib/loopback-mcp/transport';
+import {
+  opendiaNativeEnabled,
+  opendiaNativeWhitelist,
+  OPENDIA_NATIVE_DEFAULT_CORE,
+} from '@/lib/tools/opendia-native';
 
 type Status = 'connecting' | 'connected' | 'disconnected';
 
@@ -158,6 +170,102 @@ export function OpenDiaBridgeSection() {
           {toolNames.length === 0 ? '—' : toolNames.map((n) => <div key={n}>{n}</div>)}
         </div>
       </details>
+
+      <Separator />
+
+      <NativeToolsPanel toolNames={toolNames} />
+    </div>
+  );
+}
+
+function NativeToolsPanel({ toolNames }: { toolNames: string[] }) {
+  const [enabled, setEnabled] = useState(true);
+  const [whitelist, setWhitelist] = useState<string[]>([...OPENDIA_NATIVE_DEFAULT_CORE]);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      opendiaNativeEnabled.getValue(),
+      opendiaNativeWhitelist.getValue(),
+    ]).then(([e, w]) => {
+      setEnabled(e);
+      setWhitelist(w);
+      setReady(true);
+    });
+  }, []);
+
+  const toggle = (v: boolean) => {
+    setEnabled(v);
+    void opendiaNativeEnabled.setValue(v);
+  };
+  const flip = (name: string) => {
+    setWhitelist((prev) => {
+      const next = prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name];
+      void opendiaNativeWhitelist.setValue(next);
+      return next;
+    });
+  };
+  const resetDefaults = () => {
+    const defaults = [...OPENDIA_NATIVE_DEFAULT_CORE];
+    setWhitelist(defaults);
+    void opendiaNativeWhitelist.setValue(defaults);
+  };
+
+  const wlSet = new Set(whitelist);
+  const inList = toolNames.filter((n) => wlSet.has(n));
+  const outList = toolNames.filter((n) => !wlSet.has(n));
+
+  return (
+    <div className="rounded-md border border-border p-3 space-y-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 space-y-1">
+          <div className="flex items-center gap-2 font-medium text-sm">
+            <Wrench className="size-4" />
+            Sidebar agent tools (in-process)
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Expose the whitelisted browser_* tools to the Cebian sidebar agent as
+            first-class AgentTools. The remaining long-tail is reachable via
+            opendia_list_tools + opendia_call_tool meta-tools to save prompt tokens.
+          </p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={toggle} disabled={!ready} />
+      </div>
+
+      {enabled && (
+        <>
+          <div className="text-xs text-muted-foreground">
+            Core whitelist: {inList.length} · Long-tail (meta-only): {outList.length}
+          </div>
+
+          <details className="text-sm">
+            <summary className="cursor-pointer font-medium">
+              Edit whitelist ({whitelist.length})
+            </summary>
+            <div className="mt-2 max-h-72 overflow-auto space-y-1 pr-2">
+              {toolNames.length === 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  Loopback tools not loaded yet.
+                </div>
+              ) : (
+                toolNames.map((name) => (
+                  <label key={name} className="flex items-center gap-2 text-xs font-mono cursor-pointer">
+                    <Checkbox
+                      checked={wlSet.has(name)}
+                      onCheckedChange={() => flip(name)}
+                    />
+                    <span>{name}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </details>
+
+          <Button variant="outline" size="sm" onClick={resetDefaults}>
+            Reset to defaults
+          </Button>
+        </>
+      )}
     </div>
   );
 }

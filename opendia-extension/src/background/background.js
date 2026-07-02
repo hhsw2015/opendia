@@ -5509,3 +5509,28 @@ if (typeof chrome !== "undefined" && chrome.action && chrome.action.onClicked) {
 globalThis.__opendiaConnectionSend = (frame) => {
   try { connectionManager.send(frame); } catch { /* WS disconnected */ }
 };
+
+// In-process direct call. Cebian's sidebar agent wraps this into
+// AgentTool[] so 164 browser_* tools are reachable without going through
+// the daemon MCP round-trip. The reply-router pattern (handleMCPRequest's
+// second arg) captures the {id,result|error} envelope in a Promise.
+globalThis.__opendiaCallTool = (name, args) => {
+  return new Promise((resolve, reject) => {
+    const id = `native-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const replyTo = (envelope) => {
+      if (!envelope || envelope.id !== id) return;
+      if (envelope.error) {
+        const msg = envelope.error?.message ?? String(envelope.error);
+        reject(new Error(msg));
+      } else {
+        resolve(envelope.result);
+      }
+    };
+    handleMCPRequest({ id, method: name, params: args ?? {} }, replyTo)
+      .catch((err) => reject(err));
+  });
+};
+
+// Metadata: return getAvailableTools() unchanged so the Cebian side can
+// filter/whitelist without duplicating the schema list.
+globalThis.__opendiaListTools = () => getAvailableTools();

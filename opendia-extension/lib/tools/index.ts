@@ -22,6 +22,7 @@ import { SessionToolContext } from './session-context';
 import { TOOL_ASK_USER } from '@/lib/tools/names';
 import { getMCPManager } from '@/lib/mcp/manager';
 import { createMCPAgentTool } from './mcp-tool';
+import { buildOpendiaNativeTools } from './opendia-native';
 
 /** Non-interactive tools shared by all sessions. `runSkillTool` is intentionally
  *  NOT here —— 每个 session 用 `createSessionRunSkillTool(sessionId)` 拿到
@@ -81,8 +82,18 @@ export async function buildSessionToolArray(
   ctx: SessionToolContext,
 ): Promise<AgentTool<any>[]> {
   const mcpTools = await discoverMCPTools();
+  // OpenDia native surface: 11 core browser_* tools + 2 meta-tools that
+  // expose the ~150 long-tail on demand. Empty when the toggle is off or
+  // the background bridge isn't installed (test harness).
+  const opendiaNativeTools = await buildOpendiaNativeTools();
   const runSkill = createSessionRunSkillTool(ctx.sessionId);
-  return [...ctx.getInteractiveTools(), ...sharedTools, runSkill, ...mcpTools];
+  return [
+    ...ctx.getInteractiveTools(),
+    ...sharedTools,
+    runSkill,
+    ...opendiaNativeTools,
+    ...mcpTools,
+  ];
 }
 
 /**
