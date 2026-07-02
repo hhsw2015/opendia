@@ -2188,7 +2188,84 @@ async function handleMCPRequest(message, replyTo) {
         result = await sendToContentScript('analyze', params, params.tab_id);
         break;
       case "page_extract_content":
-        result = await sendToContentScript('extract_content', params, params.tab_id);
+        // SPEC §Phase 5 tool consolidation. Route content_type=article
+        // through Cebian's Mozilla-Readability + turndown pipeline
+        // (installed as globalThis.__opendiaExtractArticle by
+        // entrypoints/background/opendia-cebian-article-adapter.ts).
+        // Output shape mirrors the pre-merge OpenDia contract so daemon
+        // clients don't see a wire change. Other content_type values
+        // (search_results / posts) keep the OpenDia heuristic extractor —
+        // Cebian has no equivalent for those.
+        if (
+          params?.content_type === "article" &&
+          typeof globalThis.__opendiaExtractArticle === "function"
+        ) {
+          const tStart = performance.now();
+          const tabId = params.tab_id || (await _resolveTabId());
+          try {
+            const { markdown, method, url } =
+              await globalThis.__opendiaExtractArticle(tabId);
+            const summarize = params.summarize !== false;
+            const title =
+              markdown
+                .split("\n")
+                .find((l) => l.trim().startsWith("# "))
+                ?.replace(/^#\s+/, "")
+                .trim() || "";
+            const wordCount = markdown.split(/\s+/).filter(Boolean).length;
+            const preview =
+              markdown.length > 500 ? markdown.slice(0, 500) + "…" : markdown;
+            const contentPayload = {
+              title,
+              content: markdown,
+              url,
+              word_count: wordCount,
+            };
+            if (summarize) {
+              result = {
+                content_type: "article",
+                summary: {
+                  title,
+                  preview,
+                  word_count: wordCount,
+                  url,
+                },
+                items_found: 1,
+                sample_items: [contentPayload],
+                extraction_method: `cebian_readability_${method}`,
+                token_estimate: Math.ceil(markdown.length / 4),
+                execution_time: Math.round(performance.now() - tStart),
+                extracted_at: new Date().toISOString(),
+              };
+            } else {
+              result = {
+                content: contentPayload,
+                method: `cebian_readability_${method}`,
+                content_type: "article",
+                execution_time: Math.round(performance.now() - tStart),
+                extracted_at: new Date().toISOString(),
+              };
+            }
+          } catch (err) {
+            // Cebian pipeline failed — fall back to OpenDia's own extractor
+            // so a Readability edge case never makes the tool unusable.
+            console.warn(
+              "[opendia] Cebian article extract failed, falling back:",
+              err,
+            );
+            result = await sendToContentScript(
+              "extract_content",
+              params,
+              params.tab_id,
+            );
+          }
+        } else {
+          result = await sendToContentScript(
+            "extract_content",
+            params,
+            params.tab_id,
+          );
+        }
         break;
       case "element_click":
         result = await sendToContentScript('element_click', params, params.tab_id);

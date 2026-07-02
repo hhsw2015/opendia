@@ -10,6 +10,11 @@
 //      recorder / MCP manager / backup / organize pipelines.
 import './opendia-bridge';
 import './opendia-cebian-chat-bridge';
+// Article-extraction adapter: routes OpenDia's page_extract_content
+// (content_type=article) through Cebian's Readability pipeline while
+// keeping the WS wire schema byte-identical. Must run BEFORE background.js's
+// dispatch table sees the first request.
+import './opendia-cebian-article-adapter';
 import { setupOAuthRefresh } from './oauth-refresh';
 import { agentManager } from './agent-manager';
 import { runOrganize, recoverOrganizeOnStartup, isOrganizing, setupOrganizeSchedule } from './organize-manager';
