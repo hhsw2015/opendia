@@ -113,10 +113,18 @@ export default defineBackground(() => {
 
   // Redundant entry points for browsers where chrome.action.onClicked
   // doesn't fire (Arc intercepts the toolbar-icon left click for its own
-  // sidebar UI). We register the same "Open OpenDia sidebar" item under
-  // BOTH the toolbar action right-click menu AND on any web page's
+  // sidebar UI, and confirmed by ollama-client#28: onClicked is silently
+  // dropped on Arc). We register a "Open OpenDia sidebar" item under
+  // BOTH the toolbar action right-click menu AND any web page's
   // right-click menu, so the user always has a working way in.
-  chrome.runtime.onInstalled.addListener(() => {
+  //
+  // Registration runs on EVERY service-worker startup, not just
+  // onInstalled — MV3 SWs get killed and restarted; the context-menu
+  // items are persisted by Chrome across SW cycles but if we ever ship
+  // a new item id (or the previous SW crashed mid-install), leaving the
+  // registration to onInstalled means the menu silently misses items.
+  function registerOpendiaContextMenus(): void {
+    if (!chrome.contextMenus?.create) return;
     try {
       chrome.contextMenus.removeAll(() => {
         chrome.contextMenus.create({
@@ -129,11 +137,15 @@ export default defineBackground(() => {
           title: 'Open OpenDia sidebar',
           contexts: ['page', 'selection', 'link'],
         });
+        console.log('[opendia] context menus registered');
       });
     } catch (err) {
       console.warn('[opendia] contextMenus setup failed:', err);
     }
-  });
+  }
+  registerOpendiaContextMenus();
+  chrome.runtime.onInstalled.addListener(registerOpendiaContextMenus);
+  chrome.runtime.onStartup?.addListener(registerOpendiaContextMenus);
   chrome.contextMenus?.onClicked.addListener((info, tab) => {
     if (
       info.menuItemId === 'opendia-open-sidepanel-action' ||
