@@ -2,7 +2,11 @@
 // manifest-firefox.json field-for-field so the built extension is
 // behaviourally identical to today's build.js output.
 //
-// See docs/specs/opendia-cebian-merge.md §Phase 1 for guardrails.
+// Phase 2 adds a Chrome MV3 side_panel entry + sidePanel permission gated
+// by the OPENDIA_CHAT_UI kill switch (checked at runtime — the manifest
+// entry stays, but background can skip opening it).
+//
+// See docs/specs/opendia-cebian-merge.md §Phase 1–2 for guardrails.
 import { defineConfig } from 'wxt';
 
 const CHROME_PERMS = [
@@ -19,6 +23,8 @@ const CHROME_PERMS = [
   'cookies',
   'downloads',
   'tabGroups',
+  // Phase 2: sidepanel opened via chrome.sidePanel.open().
+  'sidePanel',
 ];
 
 // Firefox MV2 pre-migration set — matches manifest-firefox.json exactly.
@@ -44,6 +50,7 @@ export default defineConfig({
   entrypointsDir: 'entrypoints',
   publicDir: 'public',
   outDir: 'dist',
+  modules: ['@wxt-dev/module-react'],
   manifest: ({ browser }) => {
     const isFirefox = browser === 'firefox';
     return {

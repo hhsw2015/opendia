@@ -2154,8 +2154,12 @@ function getAvailableTools() {
 }
 
 // Handle MCP requests with enhanced automation tools
-async function handleMCPRequest(message) {
+async function handleMCPRequest(message, replyTo) {
   const { id, method, params } = message;
+  // Reply router: loopback transport passes replyTo=(msg)=>port.postMessage(msg)
+  // so responses skip the WS `connectionManager.send` path. WS transport (the
+  // default) calls this with no replyTo and keeps the historical behaviour.
+  const emit = replyTo || ((msg) => connectionManager.send(msg));
 
   try {
     // Ensure connection for Chrome service workers
@@ -2585,13 +2589,13 @@ async function handleMCPRequest(message) {
     }
 
     // Send success response
-    connectionManager.send({
+    emit({
       id,
       result,
     });
   } catch (error) {
     // Send error response
-    connectionManager.send({
+    emit({
       id,
       error: {
         message: error.message,
@@ -5332,4 +5336,51 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true });
   }
   return true; // Keep the message channel open
+});
+
+// Phase 2 loopback MCP transport. The sidepanel connects a runtime port
+// named "mcp-loopback"; frames on that port share the same handleMCPRequest
+// dispatcher that the WebSocket transport uses. Both transports see the
+// same tool table, safety-mode gating, and CDP attach state — the SPEC's
+// non-regression guarantee (M2) depends on this being a single handler
+// table, not a fork.
+//
+// Wire protocol on the port mirrors the WS frame shape:
+//   downstream (client→bg): { id, method, params }  |  { type:"tools/list" }
+//   upstream   (bg→client): { id, result }          |  { id, error }
+//                          | { type:"tools",   tools: [...] }
+//
+// Kill switch: setting OPENDIA_CHAT_UI=0 in chrome.storage.local hides the
+// sidepanel entrypoint; the port still accepts connections (Phase 4 chat
+// bus uses it as well), but no one is expected to connect.
+globalThis.__opendiaLoopbackReady = true;
+browser.runtime.onConnect.addListener((port) => {
+  if (port.name !== "mcp-loopback") return;
+  port.onMessage.addListener(async (frame) => {
+    try {
+      if (frame?.type === "tools/list") {
+        const tools = getAvailableTools();
+        port.postMessage({ type: "tools", tools });
+        return;
+      }
+      if (!frame || typeof frame.id === "undefined") return;
+      await handleMCPRequest(
+        {
+          id: frame.id,
+          method: frame.method,
+          params: frame.params ?? {},
+        },
+        // replyTo — routes both success/error envelopes to the loopback
+        // port instead of the WS transport.
+        (envelope) => {
+          try { port.postMessage(envelope); } catch { /* port closed */ }
+        }
+      );
+    } catch (err) {
+      port.postMessage({
+        id: frame?.id ?? null,
+        error: err?.message ?? String(err),
+      });
+    }
+  });
 });
