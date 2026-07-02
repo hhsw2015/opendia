@@ -62,6 +62,11 @@ export default defineConfig({
   entrypointsDir: 'entrypoints',
   publicDir: 'public',
   outDir: 'dist',
+  // Match the pre-merge OpenDia build layout (dist/chrome, dist/firefox)
+  // so users who already loaded the extension from that path can just hit
+  // Chrome's "reload" button on chrome://extensions instead of re-picking
+  // the directory after every rebuild.
+  outDirTemplate: '{{browser}}',
   modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
   dev: {
     server: { port: 3210 },
