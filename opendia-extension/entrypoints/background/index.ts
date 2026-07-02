@@ -1,7 +1,15 @@
-// Merged extension: OpenDia's WS bridge + Phase 4 chat store side-load into
-// this same SW. Import first so the 164-tool dispatch table registers before
-// any Cebian handler runs.
+// Merged extension boot order:
+//   1. opendia-bridge — OpenDia's pre-merge background.js side-loads here.
+//      Installs the 164-tool WS dispatch table and its baseline chat_* stub
+//      handler (globalThis.__opendiaHandleChatFrame).
+//   2. opendia-cebian-chat-bridge — OVERRIDES the stub handler so daemon
+//      chat_* frames read/write Cebian's Dexie sessionStore instead of
+//      an OpenDia-owned store. OpenDia only bridges MCP tools; chat state
+//      is Cebian's job.
+//   3. Cebian's own defineBackground() below runs its agent-manager /
+//      recorder / MCP manager / backup / organize pipelines.
 import './opendia-bridge';
+import './opendia-cebian-chat-bridge';
 import { setupOAuthRefresh } from './oauth-refresh';
 import { agentManager } from './agent-manager';
 import { runOrganize, recoverOrganizeOnStartup, isOrganizing, setupOrganizeSchedule } from './organize-manager';
