@@ -27,7 +27,7 @@ import { AGENT_PORT_NAME, type ClientMessage, type ServerMessage } from '@/lib/i
 import { isRecorderRuntimeMessage, RECORDER_MSG_KIND, type RecorderControlMessage } from '@/lib/recorder/protocol';
 import { isInjectablePage } from '@/lib/browser/tab-actions';
 import { vfs } from '@/lib/persistence/vfs';
-import { pendingChangelogVersion } from '@/lib/persistence/storage';
+import { pendingChangelogVersion, opendiaOpenBehaviour } from '@/lib/persistence/storage';
 import { isValidSessionId } from '@/lib/utils';
 
 /**
@@ -73,17 +73,19 @@ export default defineBackground(() => {
   // meaningful (side panel is global to the browser), so we track it
   // in a module-scope variable and refocus if it still exists.
   let fallbackWindowId: number | null = null;
-  chrome.action.onClicked.addListener(async () => {
-    if (sidePanelUsable) return; // Chrome / Edge / Brave: setPanelBehavior handles it
-    try {
-      if (sidePanelApi?.open) {
-        // Some Chromium forks (Vivaldi, etc.) expose the imperative
-        // API even though the declarative behavior no-ops — try it first.
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  chrome.action.onClicked.addListener(async (tab) => {
+    const mode = await opendiaOpenBehaviour.getValue().catch(() => 'auto');
+    const tryPanel = mode !== 'window';
+    if (tryPanel && sidePanelApi?.open) {
+      try {
         await sidePanelApi.open({ tabId: tab?.id, windowId: tab?.windowId });
         return;
+      } catch (err) {
+        console.warn('[opendia] sidePanel.open failed, falling back to popup window:', err);
+        if (mode === 'panel') return; // user asked for panel-only, don't fall back
       }
-    } catch { /* fall through */ }
+    }
+    if (mode === 'panel') return; // sidePanel API missing, and user forced panel-only
 
     // Refocus the existing fallback window if it's still alive.
     if (fallbackWindowId != null) {

@@ -16,6 +16,7 @@ import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { connectLoopback, type LoopbackClient } from '@/lib/loopback-mcp/transport';
+import { opendiaOpenBehaviour, type OpendiaOpenBehaviour } from '@/lib/persistence/storage';
 import {
   opendiaNativeEnabled,
   opendiaNativeWhitelist,
@@ -114,6 +115,8 @@ export function OpenDiaBridgeSection() {
         Connects the extension to the Everywhere daemon over WebSocket, exposing 164 browser
         automation tools. The daemon proxies these to Claude Code / Cursor / any MCP client.
       </p>
+
+      <OpenBehaviourPicker />
 
       <div className="rounded-md border border-border p-3 space-y-2">
         <StatusRow label="Daemon" value={daemonStatus} />
@@ -282,6 +285,62 @@ function StatusRow({ label, value }: { label: string; value: Status }) {
         <span className={`inline-block size-2 rounded-full ${color}`} />
         <span className="font-medium">{value}</span>
       </span>
+    </div>
+  );
+}
+
+// Toolbar-click behaviour picker. Users on Arc (or any Chromium fork
+// that silently drops chrome.sidePanel) can force the popup-window
+// fallback here without hunting through DevTools.
+function OpenBehaviourPicker() {
+  const [mode, setMode] = useState<OpendiaOpenBehaviour>('auto');
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    opendiaOpenBehaviour.getValue().then((v) => {
+      setMode(v);
+      setReady(true);
+    });
+  }, []);
+
+  const pick = (v: OpendiaOpenBehaviour) => {
+    setMode(v);
+    void opendiaOpenBehaviour.setValue(v);
+  };
+
+  return (
+    <div className="rounded-md border border-border p-3 space-y-2">
+      <Label className="text-sm font-medium">Toolbar-click behaviour</Label>
+      <p className="text-xs text-muted-foreground">
+        Chrome / Edge / Brave support the native side panel. Arc silently drops
+        it — pick "popup window" there for a detachable sidebar you can dock
+        beside the current tab.
+      </p>
+      <div className="flex flex-col gap-1 text-sm">
+        {(['auto', 'panel', 'window'] as const).map((opt) => (
+          <label key={opt} className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="opendia-open-behaviour"
+              value={opt}
+              checked={mode === opt}
+              onChange={() => pick(opt)}
+              disabled={!ready}
+            />
+            <span>
+              <span className="font-medium">{opt}</span>
+              {' — '}
+              <span className="text-muted-foreground text-xs">
+                {opt === 'auto'
+                  ? 'try native side panel, fall back to popup window if it fails'
+                  : opt === 'panel'
+                  ? 'native side panel only (do nothing on Arc)'
+                  : 'always open as a popup window (works everywhere)'}
+              </span>
+            </span>
+          </label>
+        ))}
+      </div>
     </div>
   );
 }

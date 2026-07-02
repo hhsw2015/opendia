@@ -134,6 +134,17 @@ export const lastSelectedThinkingLevel = storage.defineItem<ThinkingLevel>(
   { fallback: 'medium' },
 );
 
+// OpenDia + Cebian merge: toolbar-click behaviour.
+//  - 'auto'   (default): try native sidePanel, fall back to popup window
+//  - 'panel'  : force native chrome.sidePanel.open
+//  - 'window' : always open sidepanel.html as a pinned popup window
+//               (Arc, or when the user wants a detachable sidebar)
+export type OpendiaOpenBehaviour = 'auto' | 'panel' | 'window';
+export const opendiaOpenBehaviour = storage.defineItem<OpendiaOpenBehaviour>(
+  'local:opendia:openBehaviour',
+  { fallback: 'auto' },
+);
+
 export const themePreference = storage.defineItem<'dark' | 'light' | 'system'>(
   'local:theme',
   { fallback: 'system' },
