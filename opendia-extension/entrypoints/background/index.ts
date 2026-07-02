@@ -63,17 +63,59 @@ export default defineBackground(() => {
     }
   }
 
-  // Fallback path (Arc etc.): open the sidepanel HTML as a normal tab
-  // when the user clicks the toolbar icon and sidePanel is unusable.
-  chrome.action.onClicked.addListener(async (tab) => {
+  // Fallback path (Arc etc.): sidePanel API is missing or disabled.
+  // Open the sidepanel HTML as a detached popup window pinned to the
+  // right edge of the screen so the user can see the sidebar and the
+  // current webpage side by side — same UX as the native side panel,
+  // just in a separate always-on-top window.
+  //
+  // We reuse a single fallback window instance keyed by tabId isn't
+  // meaningful (side panel is global to the browser), so we track it
+  // in a module-scope variable and refocus if it still exists.
+  let fallbackWindowId: number | null = null;
+  chrome.action.onClicked.addListener(async () => {
     if (sidePanelUsable) return; // Chrome / Edge / Brave: setPanelBehavior handles it
     try {
       if (sidePanelApi?.open) {
+        // Some Chromium forks (Vivaldi, etc.) expose the imperative
+        // API even though the declarative behavior no-ops — try it first.
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         await sidePanelApi.open({ tabId: tab?.id, windowId: tab?.windowId });
         return;
       }
-    } catch { /* fall through to tab fallback */ }
-    await chrome.tabs.create({ url: chrome.runtime.getURL('sidepanel.html') });
+    } catch { /* fall through */ }
+
+    // Refocus the existing fallback window if it's still alive.
+    if (fallbackWindowId != null) {
+      try {
+        await chrome.windows.update(fallbackWindowId, { focused: true });
+        return;
+      } catch {
+        fallbackWindowId = null;
+      }
+    }
+
+    // Position the popup on the right edge of the primary display so
+    // the user can arrange their current tab next to it.
+    const screenWidth = (globalThis as any).screen?.width ?? 1440;
+    const width = 420;
+    const height = Math.min((globalThis as any).screen?.height ?? 900, 900);
+    const created = await chrome.windows.create({
+      url: chrome.runtime.getURL('sidepanel.html'),
+      type: 'popup',
+      width,
+      height,
+      left: Math.max(0, screenWidth - width - 10),
+      top: 60,
+      focused: true,
+    });
+    if (created?.id != null) fallbackWindowId = created.id;
+  });
+
+  // Reset the tracker when the user closes the fallback window so the
+  // next click opens a fresh one instead of trying to refocus a stale id.
+  chrome.windows.onRemoved.addListener((closedId) => {
+    if (closedId === fallbackWindowId) fallbackWindowId = null;
   });
 
   setupOAuthRefresh();
