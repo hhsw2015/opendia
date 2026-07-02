@@ -44,9 +44,37 @@ const AGENT_GRACE_PERIOD_MS = 60_000;
 export default defineBackground(() => {
   console.log('Cebian background started', { id: browser.runtime.id });
 
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => console.error(error));
+  // sidePanel is Chromium-only and Arc explicitly disables it. Try the
+  // declarative panel-on-click first; if that or the API itself throws
+  // (Arc / any Chromium fork without sidePanel), fall back to opening
+  // sidepanel.html as a regular tab when the toolbar icon is clicked.
+  const sidePanelApi = (chrome as any).sidePanel;
+  let sidePanelUsable = false;
+  if (sidePanelApi?.setPanelBehavior) {
+    try {
+      sidePanelApi
+        .setPanelBehavior({ openPanelOnActionClick: true })
+        .then(() => { sidePanelUsable = true; })
+        .catch((error: unknown) => {
+          console.warn('[opendia] sidePanel unavailable, falling back to tab', error);
+        });
+    } catch (err) {
+      console.warn('[opendia] sidePanel.setPanelBehavior threw', err);
+    }
+  }
+
+  // Fallback path (Arc etc.): open the sidepanel HTML as a normal tab
+  // when the user clicks the toolbar icon and sidePanel is unusable.
+  chrome.action.onClicked.addListener(async (tab) => {
+    if (sidePanelUsable) return; // Chrome / Edge / Brave: setPanelBehavior handles it
+    try {
+      if (sidePanelApi?.open) {
+        await sidePanelApi.open({ tabId: tab?.id, windowId: tab?.windowId });
+        return;
+      }
+    } catch { /* fall through to tab fallback */ }
+    await chrome.tabs.create({ url: chrome.runtime.getURL('sidepanel.html') });
+  });
 
   setupOAuthRefresh();
 
