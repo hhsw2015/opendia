@@ -13,6 +13,7 @@ import { BackupSection } from '@/components/settings/sections/BackupSection';
 import { StorageSection } from '@/components/settings/sections/StorageSection';
 import { AdvancedSection } from '@/components/settings/sections/AdvancedSection';
 import { AboutSection } from '@/components/settings/sections/AboutSection';
+import { OpenDiaBridgeSection } from '@/components/settings/sections/OpenDiaBridgeSection';
 import { lastSettingsSection } from '@/lib/persistence/storage';
 
 interface SettingsRoutesProps {
@@ -45,6 +46,7 @@ export function SettingsRoutes({ basePath, showBackButton = false, showOpenInTab
         <Route path="skills/*" element={<SkillsSection />} />
         <Route path="memory/*" element={<MemorySection />} />
         <Route path="mcp" element={<MCPSection />} />
+        <Route path="opendia" element={<OpenDiaBridgeSection />} />
         <Route path="backup" element={<BackupSection />} />
         <Route path="storage" element={<StorageSection />} />
         <Route path="advanced" element={<AdvancedSection />} />
