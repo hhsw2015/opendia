@@ -91,7 +91,13 @@ export default defineConfig({
     const isFirefox = browser === 'firefox';
     return {
       name: 'OpenDia',
-      version: '1.1.0',
+      // Cebian's useUpdateCheck reads chrome.runtime.getManifest().version
+      // and compares it against Cebian's upstream GitHub release. Since we
+      // vendor Cebian at v1.4.0, keeping the manifest at 1.1.0 makes it
+      // permanently flag "update available" against v1.4.0. Bump the merged
+      // extension to 1.4.0 to match Cebian's semantic — OpenDia's own
+      // versioning collapses into Cebian's stream from this merge onward.
+      version: '1.4.0',
       description: 'Connect your browser to AI models',
       default_locale: 'en',
       ...(isFirefox

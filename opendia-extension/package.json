@@ -1,6 +1,6 @@
 {
   "name": "opendia-extension",
-  "version": "1.1.0",
+  "version": "1.4.0",
   "description": "OpenDia + Cebian merged extension — MCP browser automation with agentic sidepanel",
   "private": true,
   "type": "module",
