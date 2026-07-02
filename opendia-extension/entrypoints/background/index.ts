@@ -44,19 +44,42 @@ const AGENT_GRACE_PERIOD_MS = 60_000;
 export default defineBackground(() => {
   console.log('Cebian background started', { id: browser.runtime.id });
 
-  // sidePanel is Chromium-only and Arc explicitly disables it. Try the
-  // declarative panel-on-click first; if that or the API itself throws
-  // (Arc / any Chromium fork without sidePanel), fall back to opening
-  // sidepanel.html as a regular tab when the toolbar icon is clicked.
+  // Toolbar-icon behaviour resolves at runtime because the two paths
+  // are mutually exclusive on Chrome MV3:
+  //
+  //   - manifest.action.default_popup="popup.html" → Chrome ignores
+  //     sidePanel.setPanelBehavior({openPanelOnActionClick:true}) AND
+  //     never fires action.onClicked. Popup wins.
+  //   - action.setPopup({popup:""}) at runtime → clears the manifest
+  //     popup for this session, letting setPanelBehavior take over.
+  //
+  // Strategy:
+  //   • Always ship default_popup in manifest so Arc users, whose
+  //     sidePanel is broken, at least get the pre-merge status popup
+  //     when they click the icon.
+  //   • On Chrome / Edge / Brave, detect that sidePanel.setPanelBehavior
+  //     resolves cleanly, then clear the popup so the icon opens the
+  //     Cebian side panel directly (unchanged Chrome UX).
+  //   • Everyone still has the right-click page menu 'Open OpenDia
+  //     sidebar' as a redundant entry.
   const sidePanelApi = (chrome as any).sidePanel;
   let sidePanelUsable = false;
   if (sidePanelApi?.setPanelBehavior) {
     try {
       sidePanelApi
         .setPanelBehavior({ openPanelOnActionClick: true })
-        .then(() => { sidePanelUsable = true; })
+        .then(() => {
+          sidePanelUsable = true;
+          // Native side panel works — clear the popup so the icon opens
+          // the panel directly instead of the (Arc-only) legacy popup.
+          try {
+            chrome.action.setPopup?.({ popup: '' });
+          } catch (err) {
+            console.warn('[opendia] action.setPopup clear failed', err);
+          }
+        })
         .catch((error: unknown) => {
-          console.warn('[opendia] sidePanel unavailable, falling back to tab', error);
+          console.warn('[opendia] sidePanel unavailable, keeping legacy popup for icon click', error);
         });
     } catch (err) {
       console.warn('[opendia] sidePanel.setPanelBehavior threw', err);

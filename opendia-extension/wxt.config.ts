@@ -14,7 +14,12 @@ import { defineConfig } from 'wxt';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
 
-const LEGACY_POPUP = process.env.OPENDIA_LEGACY_POPUP === '1';
+// Popup is now always built. It serves as the Arc fallback for
+// action-icon clicks (Arc silently drops chrome.action.onClicked, so a
+// declarative default_popup is the only thing that renders on click).
+// Chrome/Edge/Brave clear the popup at runtime once sidePanel is
+// confirmed working — see entrypoints/background/index.ts.
+const LEGACY_POPUP = true;
 // WXT `-b firefox` sets this at runtime; wxt.config.ts is evaluated once
 // per build so we can key filterEntrypoints on it.
 const IS_FIREFOX_BUILD = process.argv.includes('firefox');
@@ -115,7 +120,19 @@ export default defineConfig({
       permissions: isFirefox ? FIREFOX_PERMS : CHROME_PERMS,
       ...(isFirefox ? {} : { host_permissions: ['<all_urls>'] }),
       incognito: 'split',
-      action: { default_title: 'OpenDia' },
+      // Toolbar action. `default_popup` gives Arc users a working
+      // interaction (Arc silently drops chrome.action.onClicked events, so
+      // we can't run any handler on click; a declarative popup renders
+      // even on Arc). Chrome/Edge/Brave — where sidePanel.setPanelBehavior
+      // takes over — the popup is unreachable via the icon and only
+      // shows up if the user right-clicks the action for the fallback
+      // "Open OpenDia sidebar" context-menu item, so Chrome UX is
+      // unchanged. The popup itself is the pre-merge OpenDia status
+      // panel: daemon status pill, tool count, safety toggle, etc.
+      action: {
+        default_title: 'OpenDia',
+        default_popup: 'popup.html',
+      },
       // Keyboard shortcut redundant entry — user binds their key of choice
       // in chrome://extensions/shortcuts. We don't hard-code a suggested
       // key because Cmd/Ctrl+Shift+O collides with common built-ins.
