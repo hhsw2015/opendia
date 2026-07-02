@@ -1,0 +1,3420 @@
+{
+  "version": 1,
+  "captured_at": "PHASE0_BASELINE",
+  "tool_count": 164,
+  "tools": [
+    {
+      "name": "add_bookmark",
+      "inputSchema": {
+        "properties": {
+          "parentId": {
+            "description": "ID of the parent folder (optional)",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title of the bookmark",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL of the bookmark",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "url"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "add_init_script",
+      "inputSchema": {
+        "properties": {
+          "script": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "annotate_screenshot",
+      "inputSchema": {
+        "properties": {
+          "interactive_only": {
+            "default": true,
+            "description": "Only annotate actionable elements (default true; false = every node).",
+            "type": "boolean"
+          },
+          "max_nodes": {
+            "default": 200,
+            "type": "number"
+          },
+          "quality": {
+            "default": 80,
+            "description": "JPEG quality 1-100.",
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "auth_delete",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "auth_list",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "auth_login",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "auth_save",
+      "inputSchema": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "payload"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "auth_show",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "back",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "cdp_evaluate",
+      "inputSchema": {
+        "properties": {
+          "await_promise": {
+            "default": true,
+            "type": "boolean"
+          },
+          "expression": {
+            "description": "JS expression. Wrapped to support top-level await.",
+            "type": "string"
+          },
+          "return_by_value": {
+            "default": true,
+            "type": "boolean"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "timeout_ms": {
+            "default": 10000,
+            "type": "number"
+          }
+        },
+        "required": [
+          "tab_id",
+          "expression"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "cdp_get_response_body",
+      "inputSchema": {
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tab_id",
+          "request_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "cdp_input_keys",
+      "inputSchema": {
+        "properties": {
+          "keys": {
+            "description": "Sequence to type.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tab_id",
+          "keys"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "cdp_input_mouse",
+      "inputSchema": {
+        "properties": {
+          "button": {
+            "default": "left",
+            "enum": [
+              "left",
+              "right",
+              "middle"
+            ],
+            "type": "string"
+          },
+          "click_count": {
+            "default": 1,
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tab_id",
+          "x",
+          "y"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "cdp_list_console_messages",
+      "inputSchema": {
+        "properties": {
+          "level_filter": {
+            "description": "info/log/warning/error/debug filter.",
+            "type": "string"
+          },
+          "limit": {
+            "default": 200,
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "cdp_list_network_requests",
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "default": 200,
+            "type": "number"
+          },
+          "method_filter": {
+            "description": "Substring filter on HTTP method (GET/POST/...).",
+            "type": "string"
+          },
+          "since_ms": {
+            "description": "Filter to requests started after this unix-ms timestamp.",
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "url_filter": {
+            "description": "Substring filter on URL.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "cdp_upload_file",
+      "inputSchema": {
+        "properties": {
+          "file_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tab_id",
+          "selector",
+          "file_paths"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "check",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "claim_tab",
+      "inputSchema": {
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "session_id",
+          "tab_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "clear_cookies",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "click",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "description": "@refN identifier from snapshot.ref_map.",
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "clipboard_read",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tab_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "clipboard_read_text",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tab_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "clipboard_write",
+      "inputSchema": {
+        "properties": {
+          "items": {
+            "items": {
+              "properties": {
+                "data_base64": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "data_base64"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tab_id",
+          "items"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "clipboard_write_text",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tab_id",
+          "text"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "close",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "confirm",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "console",
+      "inputSchema": {
+        "properties": {
+          "flush": {
+            "default": true,
+            "type": "boolean"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "cookies_clear",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "cookies_get",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "cookies_set",
+      "inputSchema": {
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "expirationDate": {
+            "type": "number"
+          },
+          "httpOnly": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sameSite": {
+            "type": "string"
+          },
+          "secure": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "cookies_set_curl",
+      "inputSchema": {
+        "properties": {
+          "header": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "header"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "dblclick",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "deny",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "device",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "dialog_accept",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "dialog_dismiss",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "dialog_status",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "diff_screenshot",
+      "inputSchema": {
+        "properties": {
+          "format": {
+            "default": "jpeg",
+            "type": "string"
+          },
+          "quality": {
+            "default": 70,
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "diff_snapshot",
+      "inputSchema": {
+        "properties": {
+          "interactive_only": {
+            "type": "boolean"
+          },
+          "max_nodes": {
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "diff_url",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "dispatch_keys",
+      "inputSchema": {
+        "properties": {
+          "keys": {
+            "description": "Sequence of keys, e.g. [\"Enter\"], [\"Tab\",\"Tab\",\"Enter\"], [\"Meta+Enter\"].",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "selector": {
+            "description": "Optional CSS selector for target. Defaults to document.activeElement, then document.body.",
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "dom_query",
+      "inputSchema": {
+        "properties": {
+          "action": {
+            "description": "What to do once the element is located.",
+            "enum": [
+              "click",
+              "fill",
+              "focus",
+              "scroll_into_view",
+              "get_text",
+              "get_attr",
+              "get_html",
+              "exists",
+              "submit_form"
+            ],
+            "type": "string"
+          },
+          "nth": {
+            "default": 0,
+            "description": "Index when the selector matches multiple elements (0=first).",
+            "type": "number"
+          },
+          "selector": {
+            "description": "CSS selector. Use ' >>> ' to pierce open shadow roots (e.g. 'my-host >>> button.submit').",
+            "type": "string"
+          },
+          "tab_id": {
+            "description": "Target tab id. Defaults to active tab.",
+            "type": "number"
+          },
+          "value": {
+            "description": "Text for action=fill, or attribute name for action=get_attr.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "selector",
+          "action"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "dom_query_all",
+      "inputSchema": {
+        "properties": {
+          "all_frames": {
+            "default": false,
+            "description": "Walk every iframe in the tab and merge results (each row carries a frame_id field).",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 100,
+            "description": "Cap on results.",
+            "type": "number"
+          },
+          "selector": {
+            "default": "button, [role=button], input, textarea, select, a[href]",
+            "description": "CSS selector. Supports ' >>> ' shadow piercing.",
+            "type": "string"
+          },
+          "tab_id": {
+            "description": "Target tab id.",
+            "type": "number"
+          },
+          "visible_only": {
+            "default": true,
+            "description": "Filter to elements with non-zero bounding box.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "download",
+      "inputSchema": {
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "drag",
+      "inputSchema": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "element_click",
+      "inputSchema": {
+        "properties": {
+          "click_type": {
+            "default": "left",
+            "enum": [
+              "left",
+              "right",
+              "double"
+            ],
+            "type": "string"
+          },
+          "element_id": {
+            "description": "Unique element identifier from page_analyze",
+            "type": "string"
+          },
+          "tab_id": {
+            "description": "🎯 TARGET ANY TAB: Click elements in background tabs without switching! Get tab IDs from tab_list to interact with multiple tabs efficiently.",
+            "type": "number"
+          },
+          "wait_after": {
+            "default": 500,
+            "description": "Milliseconds to wait after click",
+            "type": "number"
+          }
+        },
+        "required": [
+          "element_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "element_fill",
+      "inputSchema": {
+        "properties": {
+          "clear_first": {
+            "default": true,
+            "description": "Clear existing content before filling",
+            "type": "boolean"
+          },
+          "element_id": {
+            "description": "Unique element identifier from page_analyze",
+            "type": "string"
+          },
+          "force_focus": {
+            "default": true,
+            "description": "Use enhanced focus sequence with click simulation for modern apps",
+            "type": "boolean"
+          },
+          "tab_id": {
+            "description": "🎯 TARGET ANY TAB: Fill forms in background tabs without switching! Perfect for batch form filling across multiple tabs. Get tab IDs from tab_list.",
+            "type": "number"
+          },
+          "value": {
+            "description": "Text value to input",
+            "type": "string"
+          }
+        },
+        "required": [
+          "element_id",
+          "value"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "element_get_state",
+      "inputSchema": {
+        "properties": {
+          "element_id": {
+            "description": "Element ID from page_analyze",
+            "type": "string"
+          }
+        },
+        "required": [
+          "element_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "emulate_device",
+      "inputSchema": {
+        "properties": {
+          "clear": {
+            "default": false,
+            "type": "boolean"
+          },
+          "device_scale_factor": {
+            "default": 2,
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "mobile": {
+            "default": true,
+            "type": "boolean"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "user_agent": {
+            "type": "string"
+          },
+          "width": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tab_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "errors",
+      "inputSchema": {
+        "properties": {
+          "flush": {
+            "default": true,
+            "type": "boolean"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "eval",
+      "inputSchema": {
+        "properties": {
+          "script": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "evaluate_js",
+      "inputSchema": {
+        "properties": {
+          "args": {
+            "default": [],
+            "description": "Arguments forwarded as the function's parameters (JSON-serializable).",
+            "type": "array"
+          },
+          "expression": {
+            "description": "JS expression OR full function body. The code is wrapped in `() => { <expression> }`, so a trailing `return` is needed for non-expression bodies.",
+            "type": "string"
+          },
+          "tab_id": {
+            "description": "Target tab id. If omitted, uses active tab.",
+            "type": "number"
+          },
+          "timeout_ms": {
+            "default": 5000,
+            "description": "Hard timeout for the script.",
+            "type": "number"
+          },
+          "world": {
+            "default": "MAIN",
+            "description": "Execution world. MAIN sees page globals; ISOLATED is the content-script sandbox.",
+            "enum": [
+              "MAIN",
+              "ISOLATED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "expression"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "fill",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "value"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "finalize_tabs",
+      "inputSchema": {
+        "properties": {
+          "keep": {
+            "items": {
+              "properties": {
+                "status": {
+                  "description": "handoff | deliverable | reviewed | (free-form)",
+                  "type": "string"
+                },
+                "tab_id": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "tab_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "find",
+      "inputSchema": {
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "selector"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "find_by_label",
+      "inputSchema": {
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "find_by_placeholder",
+      "inputSchema": {
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "find_by_role",
+      "inputSchema": {
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "find_by_testid",
+      "inputSchema": {
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "find_by_text",
+      "inputSchema": {
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "focus",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "forward",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "frame_main",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "frame_switch",
+      "inputSchema": {
+        "properties": {
+          "frame_id": {
+            "type": "number"
+          },
+          "match": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_attr",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref",
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_bookmarks",
+      "inputSchema": {
+        "properties": {
+          "query": {
+            "description": "Search query for bookmarks (optional)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_box",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_cdp_url",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_cookies",
+      "inputSchema": {
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_count",
+      "inputSchema": {
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "selector"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_history",
+      "inputSchema": {
+        "properties": {
+          "domains": {
+            "description": "Filter by specific domains (e.g., ['github.com', 'stackoverflow.com'])",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "end_date": {
+            "description": "End date for history search (ISO 8601 format)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "keywords": {
+            "description": "Search keywords to match in page titles and URLs",
+            "type": "string"
+          },
+          "max_results": {
+            "default": 50,
+            "description": "Maximum number of results to return",
+            "maximum": 500,
+            "type": "number"
+          },
+          "min_visit_count": {
+            "default": 1,
+            "description": "Minimum visit count threshold",
+            "type": "number"
+          },
+          "sort_by": {
+            "default": "visit_time",
+            "description": "Sort results by visit time, visit count, or title",
+            "enum": [
+              "visit_time",
+              "visit_count",
+              "title"
+            ],
+            "type": "string"
+          },
+          "sort_order": {
+            "default": "desc",
+            "description": "Sort order (descending or ascending)",
+            "enum": [
+              "desc",
+              "asc"
+            ],
+            "type": "string"
+          },
+          "start_date": {
+            "description": "Start date for history search (ISO 8601 format)",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_html",
+      "inputSchema": {
+        "properties": {
+          "max_bytes": {
+            "default": 8000,
+            "type": "number"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_page_links",
+      "inputSchema": {
+        "properties": {
+          "domains": {
+            "description": "Filter by specific domains (optional)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "link_type": {
+            "default": "all",
+            "description": "Filter by internal/external links",
+            "enum": [
+              "all",
+              "internal",
+              "external"
+            ],
+            "type": "string"
+          },
+          "max_results": {
+            "default": 50,
+            "description": "Maximum links to return",
+            "maximum": 200,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_selected_text",
+      "inputSchema": {
+        "properties": {
+          "include_metadata": {
+            "default": true,
+            "description": "Include metadata about the selection (element info, position, etc.)",
+            "type": "boolean"
+          },
+          "max_length": {
+            "default": 10000,
+            "description": "Maximum length of text to return",
+            "type": "number"
+          },
+          "tab_id": {
+            "description": "🎯 TARGET ANY TAB: Get selected text from background tabs without switching! Perfect for collecting quotes or snippets from multiple research tabs.",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_styles",
+      "inputSchema": {
+        "properties": {
+          "properties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_text",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_title",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_url",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_value",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "highlight",
+      "inputSchema": {
+        "properties": {
+          "color": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "type": "number"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "hover",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "inspect",
+      "inputSchema": {
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "selector"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "is_checked",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "is_enabled",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "is_visible",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "keyboard_insert_text",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "keyboard_type",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "keydown",
+      "inputSchema": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "keyup",
+      "inputSchema": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "mouse_down",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "mouse_move",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "mouse_up",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "mouse_wheel",
+      "inputSchema": {
+        "properties": {
+          "dx": {
+            "type": "number"
+          },
+          "dy": {
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "move_mouse",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "name_session",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "network_har_start",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "network_har_stop",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "network_request",
+      "inputSchema": {
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "credentials": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object"
+          },
+          "method": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "network_requests",
+      "inputSchema": {
+        "properties": {
+          "flush": {
+            "default": true,
+            "type": "boolean"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "network_route",
+      "inputSchema": {
+        "properties": {
+          "pattern": {
+            "type": "string"
+          },
+          "response": {
+            "type": "object"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "pattern",
+          "response"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "network_unroute",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "open",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "timeout": {
+            "description": "Wait timeout in ms (default 10000).",
+            "type": "number"
+          },
+          "url": {
+            "description": "Target URL (http(s)/file/data).",
+            "type": "string"
+          },
+          "wait_for": {
+            "description": "Optional CSS selector to await.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "open_incognito_tab",
+      "inputSchema": {
+        "properties": {
+          "url": {
+            "default": "about:blank",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "page_analyze",
+      "inputSchema": {
+        "examples": [
+          {
+            "intent_hint": "analyze",
+            "phase": "discover"
+          },
+          {
+            "intent_hint": "login",
+            "tab_id": 12345
+          },
+          {
+            "intent_hint": "post_create",
+            "phase": "detailed",
+            "tab_id": 67890
+          }
+        ],
+        "properties": {
+          "element_ids": {
+            "description": "Expand specific quick match IDs from discover phase (e.g. ['q1', 'q2'])",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "focus_areas": {
+            "description": "Areas to analyze in detail: buttons, forms, navigation, search_elements",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "intent_hint": {
+            "description": "User intent: login, signup, search, post_create, comment, menu, submit, etc.",
+            "type": "string"
+          },
+          "max_results": {
+            "default": 5,
+            "description": "Maximum number of elements to return",
+            "maximum": 15,
+            "type": "number"
+          },
+          "phase": {
+            "default": "discover",
+            "description": "Analysis phase: 'discover' for quick scan (<100 tokens), 'detailed' for full analysis",
+            "enum": [
+              "discover",
+              "detailed"
+            ],
+            "type": "string"
+          },
+          "tab_id": {
+            "description": "🎯 TARGET ANY TAB: Specify tab ID to analyze background tabs without switching! Get tab IDs from tab_list. If omitted, analyzes current active tab.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "intent_hint"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "page_extract_content",
+      "inputSchema": {
+        "examples": [
+          {
+            "content_type": "article"
+          },
+          {
+            "content_type": "article",
+            "tab_id": 12345
+          },
+          {
+            "content_type": "posts",
+            "max_items": 10,
+            "tab_id": 67890
+          }
+        ],
+        "properties": {
+          "content_type": {
+            "description": "Type of content to extract",
+            "enum": [
+              "article",
+              "search_results",
+              "posts"
+            ],
+            "type": "string"
+          },
+          "max_items": {
+            "default": 20,
+            "description": "Maximum number of items to extract (for lists/collections)",
+            "type": "number"
+          },
+          "summarize": {
+            "default": true,
+            "description": "Return summary instead of full content to save tokens",
+            "type": "boolean"
+          },
+          "tab_id": {
+            "description": "🎯 TARGET ANY TAB: Extract content from specific background tab without switching! Use tab_list to get tab IDs. Perfect for processing multiple research tabs.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "content_type"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "page_navigate",
+      "inputSchema": {
+        "properties": {
+          "timeout": {
+            "default": 10000,
+            "description": "Maximum wait time in milliseconds",
+            "type": "number"
+          },
+          "url": {
+            "description": "URL to navigate to",
+            "type": "string"
+          },
+          "wait_for": {
+            "description": "CSS selector to wait for after navigation (ensures page is ready)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "page_scroll",
+      "inputSchema": {
+        "properties": {
+          "amount": {
+            "default": "medium",
+            "description": "Amount to scroll",
+            "enum": [
+              "small",
+              "medium",
+              "large",
+              "page",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "direction": {
+            "default": "down",
+            "description": "Direction to scroll",
+            "enum": [
+              "up",
+              "down",
+              "left",
+              "right",
+              "top",
+              "bottom"
+            ],
+            "type": "string"
+          },
+          "element_id": {
+            "description": "Scroll to specific element (overrides direction/amount)",
+            "type": "string"
+          },
+          "pixels": {
+            "description": "Custom pixel amount (when amount is 'custom')",
+            "type": "number"
+          },
+          "smooth": {
+            "default": true,
+            "description": "Use smooth scrolling animation",
+            "type": "boolean"
+          },
+          "tab_id": {
+            "description": "🎯 TARGET ANY TAB: Scroll content in background tabs without switching! Perfect for navigating long documents or pages in multiple tabs simultaneously.",
+            "type": "number"
+          },
+          "wait_after": {
+            "default": 500,
+            "description": "Milliseconds to wait after scrolling",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "page_style",
+      "inputSchema": {
+        "examples": [
+          {
+            "mode": "preset",
+            "theme": "dark_hacker"
+          },
+          {
+            "background": "#000",
+            "font": "monospace",
+            "mode": "custom",
+            "text_color": "#00ff00"
+          },
+          {
+            "intensity": "strong",
+            "mode": "ai_mood",
+            "mood": "cozy coffee shop vibes"
+          },
+          {
+            "duration": 30,
+            "effect": "matrix_rain",
+            "mode": "effect"
+          }
+        ],
+        "properties": {
+          "background": {
+            "description": "Background color/gradient",
+            "type": "string"
+          },
+          "duration": {
+            "default": 10,
+            "description": "Effect duration in seconds",
+            "type": "number"
+          },
+          "effect": {
+            "enum": [
+              "matrix_rain",
+              "floating_particles",
+              "cursor_trail",
+              "neon_glow",
+              "typing_effect"
+            ],
+            "type": "string"
+          },
+          "font": {
+            "description": "Font family",
+            "type": "string"
+          },
+          "font_size": {
+            "description": "Font size (e.g., '1.2em', '16px')",
+            "type": "string"
+          },
+          "intensity": {
+            "default": "medium",
+            "enum": [
+              "subtle",
+              "medium",
+              "strong"
+            ],
+            "type": "string"
+          },
+          "mode": {
+            "description": "Styling mode to use",
+            "enum": [
+              "preset",
+              "custom",
+              "ai_mood",
+              "effect",
+              "reset"
+            ],
+            "type": "string"
+          },
+          "mood": {
+            "description": "Describe desired mood/feeling (when mode=ai_mood)",
+            "type": "string"
+          },
+          "remember": {
+            "default": false,
+            "description": "Remember this style for this website",
+            "type": "boolean"
+          },
+          "text_color": {
+            "description": "Text color",
+            "type": "string"
+          },
+          "theme": {
+            "description": "Preset theme name (when mode=preset)",
+            "enum": [
+              "dark_hacker",
+              "retro_80s",
+              "rainbow_party",
+              "minimalist_zen",
+              "high_contrast",
+              "cyberpunk",
+              "pastel_dream",
+              "newspaper"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "page_wait_for",
+      "inputSchema": {
+        "properties": {
+          "condition_type": {
+            "description": "Type of condition to wait for",
+            "enum": [
+              "element_visible",
+              "text_present"
+            ],
+            "type": "string"
+          },
+          "selector": {
+            "description": "CSS selector for element-based conditions",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text to wait for (when condition_type is 'text_present')",
+            "type": "string"
+          },
+          "timeout": {
+            "default": 5000,
+            "description": "Maximum wait time in milliseconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "condition_type"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdf",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "press",
+      "inputSchema": {
+        "properties": {
+          "key": {
+            "description": "e.g. Enter, Tab, Escape, Control+a",
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "profiler_start",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "profiler_stop",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "pushstate",
+      "inputSchema": {
+        "properties": {
+          "state": {
+            "type": "object"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "react_inspect",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "react_renders_start",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "react_renders_stop",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "react_suspense",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "react_tree",
+      "inputSchema": {
+        "properties": {
+          "max_nodes": {
+            "default": 200,
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "reload",
+      "inputSchema": {
+        "properties": {
+          "bypass_cache": {
+            "default": false,
+            "type": "boolean"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "remove_init_script",
+      "inputSchema": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "screenshot",
+      "inputSchema": {
+        "properties": {
+          "format": {
+            "default": "png",
+            "enum": [
+              "png",
+              "jpeg"
+            ],
+            "type": "string"
+          },
+          "quality": {
+            "default": 90,
+            "description": "JPEG quality 0-100 (ignored for PNG).",
+            "type": "number"
+          },
+          "tab_id": {
+            "description": "Tab to capture. Defaults to active tab in current window.",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "scroll",
+      "inputSchema": {
+        "properties": {
+          "dir": {
+            "default": "down",
+            "enum": [
+              "up",
+              "down",
+              "left",
+              "right"
+            ],
+            "type": "string"
+          },
+          "pixels": {
+            "default": 800,
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "scroll_into_view",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "select",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "value": {
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_cookie",
+      "inputSchema": {
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "expires_seconds": {
+            "description": "Seconds from now until expiration.",
+            "type": "number"
+          },
+          "http_only": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "default": "/",
+            "type": "string"
+          },
+          "secure": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "name",
+          "value"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_credentials",
+      "inputSchema": {
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_geo",
+      "inputSchema": {
+        "properties": {
+          "accuracy": {
+            "type": "number"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_headers",
+      "inputSchema": {
+        "properties": {
+          "headers": {
+            "type": "object"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "headers"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_media",
+      "inputSchema": {
+        "properties": {
+          "features": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_offline",
+      "inputSchema": {
+        "properties": {
+          "offline": {
+            "type": "boolean"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "offline"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_viewport",
+      "inputSchema": {
+        "properties": {
+          "deviceScaleFactor": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "mobile": {
+            "type": "boolean"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "width": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "width",
+          "height"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "snapshot",
+      "inputSchema": {
+        "properties": {
+          "interactive_only": {
+            "default": false,
+            "description": "If true, only nodes with an actionable role/tag/onclick/tabindex are listed.",
+            "type": "boolean"
+          },
+          "max_nodes": {
+            "default": 400,
+            "description": "Soft cap on emitted nodes; sets truncated=true if exceeded.",
+            "type": "number"
+          },
+          "tab_id": {
+            "description": "Optional tab id; defaults to active tab.",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "state_clean",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "state_clear",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "state_list",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "state_load",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "state_rename",
+      "inputSchema": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "state_save",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "state_show",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "storage_clear",
+      "inputSchema": {
+        "properties": {
+          "kind": {
+            "default": "local",
+            "enum": [
+              "local",
+              "session"
+            ],
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "storage_get",
+      "inputSchema": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "default": "local",
+            "enum": [
+              "local",
+              "session"
+            ],
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "storage_set",
+      "inputSchema": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "default": "local",
+            "enum": [
+              "local",
+              "session"
+            ],
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "value": {}
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "swipe",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "x1": {
+            "type": "number"
+          },
+          "x2": {
+            "type": "number"
+          },
+          "y1": {
+            "type": "number"
+          },
+          "y2": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x1",
+          "y1",
+          "x2",
+          "y2"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "tab_close",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "description": "Specific tab ID to close (optional, closes current tab if not provided)",
+            "type": "number"
+          },
+          "tab_ids": {
+            "description": "Array of tab IDs to close multiple tabs",
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "tab_create",
+      "inputSchema": {
+        "examples": [
+          {
+            "count": 5,
+            "url": "https://x.com"
+          },
+          {
+            "count": 10,
+            "url": "https://github.com"
+          },
+          {
+            "urls": [
+              "https://x.com/post1",
+              "https://x.com/post2",
+              "https://google.com"
+            ]
+          },
+          {
+            "url": "https://example.com"
+          }
+        ],
+        "properties": {
+          "active": {
+            "default": true,
+            "description": "Whether to activate the last created tab (single tab only)",
+            "type": "boolean"
+          },
+          "batch_settings": {
+            "description": "Performance control settings for batch operations",
+            "properties": {
+              "chunk_size": {
+                "default": 5,
+                "description": "Number of tabs to create per batch",
+                "maximum": 10,
+                "minimum": 1,
+                "type": "number"
+              },
+              "delay_between_chunks": {
+                "default": 1000,
+                "description": "Delay between batches in milliseconds",
+                "maximum": 5000,
+                "minimum": 100,
+                "type": "number"
+              },
+              "delay_between_tabs": {
+                "default": 200,
+                "description": "Delay between individual tabs in milliseconds",
+                "maximum": 1000,
+                "minimum": 50,
+                "type": "number"
+              }
+            },
+            "type": "object"
+          },
+          "count": {
+            "default": 1,
+            "description": "REQUIRED FOR MULTIPLE IDENTICAL TABS: Set this to N to create N copies of the same URL. For '5 Twitter tabs' use count=5 with url='https://x.com'. DO NOT make 5 separate calls!",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "number"
+          },
+          "timeout": {
+            "default": 10000,
+            "description": "Maximum wait time per tab in milliseconds",
+            "type": "number"
+          },
+          "url": {
+            "description": "Single URL to open. Can be used with 'count' to create multiple identical tabs",
+            "type": "string"
+          },
+          "urls": {
+            "description": "PREFERRED FOR MULTIPLE URLS: Array of URLs to open ALL AT ONCE in a single batch operation. Pass ALL URLs here instead of making multiple calls! Example: ['https://x.com/post1', 'https://x.com/post2', 'https://google.com']",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "wait_for": {
+            "description": "CSS selector to wait for after tab creation (single tab only)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "tab_list",
+      "inputSchema": {
+        "examples": [
+          {
+            "check_content_script": false
+          },
+          {
+            "check_content_script": false,
+            "current_window_only": false
+          }
+        ],
+        "properties": {
+          "check_content_script": {
+            "default": false,
+            "description": "🔍 ESSENTIAL FOR BACKGROUND TABS: Check which tabs are ready for background operations! Set to true when planning multi-tab workflows to see which tabs can be targeted.",
+            "type": "boolean"
+          },
+          "current_window_only": {
+            "default": true,
+            "description": "Only return tabs from the current window",
+            "type": "boolean"
+          },
+          "include_details": {
+            "default": true,
+            "description": "Include additional tab details (title, favicon, etc.)",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "tab_new",
+      "inputSchema": {
+        "properties": {
+          "active": {
+            "default": true,
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "tab_switch",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "description": "Tab ID to switch to",
+            "type": "number"
+          }
+        },
+        "required": [
+          "tab_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "tap",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "trace_start",
+      "inputSchema": {
+        "properties": {
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "trace_stop",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "type",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "text"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "uncheck",
+      "inputSchema": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "upload",
+      "inputSchema": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ref",
+          "files"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "vitals",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "wait_for_download",
+      "inputSchema": {
+        "properties": {
+          "since_ms": {
+            "description": "Only consider downloads started after this unix-ms timestamp.",
+            "type": "number"
+          },
+          "timeout_ms": {
+            "default": 30000,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "wait_for_function",
+      "inputSchema": {
+        "properties": {
+          "script": {
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "timeout": {
+            "default": 10000,
+            "type": "number"
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "wait_for_load",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "timeout": {
+            "default": 10000,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "wait_for_selector",
+      "inputSchema": {
+        "properties": {
+          "selector": {
+            "description": "CSS selector. Supports ' >>> '.",
+            "type": "string"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "timeout_ms": {
+            "default": 8000,
+            "type": "number"
+          },
+          "visible": {
+            "default": true,
+            "description": "Require non-zero bounding box.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "selector"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "wait_for_text",
+      "inputSchema": {
+        "properties": {
+          "tab_id": {
+            "type": "number"
+          },
+          "text": {
+            "type": "string"
+          },
+          "timeout": {
+            "default": 10000,
+            "type": "number"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "wait_for_url",
+      "inputSchema": {
+        "properties": {
+          "regex": {
+            "default": false,
+            "type": "boolean"
+          },
+          "tab_id": {
+            "type": "number"
+          },
+          "timeout": {
+            "default": 10000,
+            "type": "number"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "wait_ms",
+      "inputSchema": {
+        "properties": {
+          "ms": {
+            "type": "number"
+          },
+          "tab_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ms"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "window_new",
+      "inputSchema": {
+        "properties": {
+          "focused": {
+            "default": true,
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  ]
+}

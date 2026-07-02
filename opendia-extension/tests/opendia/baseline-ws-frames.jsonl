@@ -1,0 +1,9 @@
+{"_note":"Phase 0 canonical WS frame templates. Each line documents the STRUCTURE of a frame in the current wire protocol so back-to-back builds can assert schema compatibility without needing a live browser. Placeholder tokens: <UUID>, <MS>, <TOOL_ARGS>, <TOOL_RESULT>. See docs/specs/opendia-cebian-merge.md §5.1 and OpenDiaBridge.cs HandleIncoming."}
+{"direction":"ext→daemon","frame":{"type":"register","tools":"<Tool[]>"}}
+{"direction":"ext→daemon","frame":{"type":"ping","timestamp":"<MS>"}}
+{"direction":"daemon→ext","frame":{"type":"pong","timestamp":"<MS>"}}
+{"direction":"daemon→ext","frame":{"id":"<UUID>","method":"<TOOL_NAME>","params":"<TOOL_ARGS>"}}
+{"direction":"ext→daemon","frame":{"id":"<UUID>","result":"<TOOL_RESULT>"}}
+{"direction":"ext→daemon","frame":{"id":"<UUID>","error":"<STRING>"}}
+{"direction":"ext→daemon","frame":{"id":"<UUID>","error":{"message":"<STRING>"}}}
+{"_cycle":"canonical capture: tools/list → capture_start → cdp_evaluate → capture_stop","sequence":[{"call":"capture_start","params":{"tab_id":"<NUMBER>"}},{"result":{"session_id":"<UUID>"}},{"call":"cdp_evaluate","params":{"expression":"<STRING>"}},{"result":{"value":"<ANY>","type":"<STRING>"}},{"call":"capture_stop","params":{"session_id":"<UUID>"}},{"result":{"ok":true,"session":"<CaptureSession>"}}]}
